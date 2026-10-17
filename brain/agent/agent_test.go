@@ -61,7 +61,7 @@ func TestParseFoWeather(t *testing.T) {
 	want := []Event{
 		{Kind: KindToolCall, Tool: "ToolSearch", Text: "Loading tools"},
 		{Kind: KindToolCall, Tool: "ask_fo", Text: "Asking Fo: What is the weather in Mumbai today?"},
-		{Kind: KindFoDone, Tool: "ask_fo", Status: "complete",
+		{Kind: KindFoDone, Tool: "ask_fo", Status: "complete", FoConversation: "14bac3c1-ae88-4bc8-8891-3b9e3e788b47",
 			Text: "Sunny in Mumbai right now, 32°C but it feels like 41 with the humidity. Only a small chance of rain, though thunderstorms are possible later."},
 	}
 	if !slices.Equal(events, want) {
@@ -347,4 +347,25 @@ func TestBuiltinToolsLockedDown(t *testing.T) {
 	if a := buildArgs(Options{}, ""); !slices.Contains(a, "--tools=") {
 		t.Errorf("by default no built-in tool should exist: %q", a)
 	}
+}
+
+func TestFoEventsCarryTheConversation(t *testing.T) {
+	f, err := os.Open("testdata/fo-research.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var got []Event
+	if _, err := ParseStream(f, func(e Event) { got = append(got, e) }); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got {
+		if e.Kind == KindFoProgress && e.Status == "working" && e.Tool == "ask_fo" && !strings.HasPrefix(e.Text, "Still waiting") { // not the heartbeat
+			if e.FoConversation != "bd004cfa-3d32-4a39-b592-d82f48a68399" {
+				t.Errorf("working event's conversation = %q", e.FoConversation)
+			}
+			return
+		}
+	}
+	t.Fatalf("no working event from ask_fo in %+v", got)
 }

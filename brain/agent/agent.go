@@ -71,6 +71,8 @@ type Event struct {
 	Tool   string // short tool name when relevant, e.g. "ask_fo"
 	Text   string // short human-readable line
 	Status string // fo_progress/fo_done: Fo's status ("working", "complete", "failed", …)
+
+	FoConversation string // fo_progress/fo_done: the Fo conversation (errand) it is about, when Fo said
 }
 
 // Result of a finished turn.

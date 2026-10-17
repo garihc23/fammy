@@ -98,7 +98,7 @@ func main() {
 	if _, err := exec.LookPath("claude"); err != nil {
 		log.Printf("WARNING: claude not found on PATH; every turn will fail")
 	}
-	thinker, escalator := newThinkers(system, cfg)
+	thinker, escalator, watcher := newThinkers(system, cfg)
 
 	var ears femi.Ears
 	var voice femi.Voice
@@ -120,6 +120,7 @@ func main() {
 		Device:      dev,
 		Thinker:     thinker,
 		Escalator:   escalator,
+		FoWatcher:   watcher,
 		Ears:        ears,
 		Voice:       voice,
 		Reminders:   sched,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -21,7 +22,7 @@ type agentThinker struct{ opts agent.Options }
 
 func (t agentThinker) Think(ctx context.Context, sessionID, text string, onEvent func(femi.Event)) (femi.Result, error) {
 	res, err := agent.Run(ctx, t.opts, sessionID, text, func(e agent.Event) {
-		onEvent(femi.Event{Kind: e.Kind, Tool: e.Tool, Text: e.Text, Status: e.Status})
+		onEvent(femi.Event{Kind: e.Kind, Tool: e.Tool, Text: e.Text, Status: e.Status, FoConversation: e.FoConversation})
 	})
 	return femi.Result{Reply: res.Reply, SessionID: res.SessionID, CostUSD: res.CostUSD}, err
 }
@@ -33,7 +34,7 @@ func mcpConfig(toolsPort int) string {
 
 // newThinkers returns the thinker for normal turns and the one for quiet
 // reminder escalations (same tools, extra instructions).
-func newThinkers(system string, cfg config) (*warmThinker, femi.Thinker) {
+func newThinkers(system string, cfg config) (*warmThinker, femi.Thinker, femi.FoWatcher) {
 	var allowed []string
 	for _, n := range femi.ToolNames() {
 		allowed = append(allowed, "mcp__femi__"+n)
@@ -53,7 +54,36 @@ func newThinkers(system string, cfg config) (*warmThinker, femi.Thinker) {
 	esc := opts
 	esc.SystemPrompt = system + "\n\n" + escalationPrompt
 	// escalations are rare and nobody waits on them: a one-off run is fine there
-	return newWarmThinker(opts), agentThinker{esc}
+	return newWarmThinker(opts), agentThinker{esc}, foWatcher{opts}
+}
+
+const watcherPrompt = `You only wait for one Fo errand that is already running. Call get_fo_reply with the conversationId you are given, and again each time its status is "working". As soon as the status is anything else, stop and reply with the single word: done. Never call ask_fo or any other tool, and never start anything new.`
+
+// foWatcher waits for a Fo errand in its own one-off Claude run, so the
+// conversation is free meanwhile (the brain can't reach Fo itself: Fo's
+// sign-in lives in Claude Code).
+type foWatcher struct{ opts agent.Options }
+
+func (w foWatcher) WaitForFo(ctx context.Context, conv string) (string, string, error) {
+	opts := w.opts
+	opts.SystemPrompt = watcherPrompt
+	opts.MCPConfigJSON = "" // Fo only, not Famyy's device tools
+	opts.ExtraAllowedTools = nil
+	opts.BuiltinTools = nil
+	opts.Timeout = 30 * time.Minute
+	var status, text string
+	_, err := agent.Run(ctx, opts, "", "conversationId: "+conv, func(e agent.Event) {
+		if e.Kind == agent.KindFoDone && (e.FoConversation == "" || e.FoConversation == conv) {
+			status, text = e.Status, e.Text
+		}
+	})
+	if status != "" {
+		return status, text, nil
+	}
+	if err == nil {
+		err = errors.New("the watcher stopped before Fo settled")
+	}
+	return "", "", err
 }
 
 // Spare and finished Claude processes are replaced after this long, so their
@@ -95,7 +125,7 @@ func (t *warmThinker) Think(ctx context.Context, sessionID, text string, onEvent
 		return agentThinker{t.opts}.Think(ctx, sessionID, text, onEvent)
 	}
 	res, err := s.Turn(ctx, text, func(e agent.Event) {
-		onEvent(femi.Event{Kind: e.Kind, Tool: e.Tool, Text: e.Text, Status: e.Status})
+		onEvent(femi.Event{Kind: e.Kind, Tool: e.Tool, Text: e.Text, Status: e.Status, FoConversation: e.FoConversation})
 	})
 	return femi.Result{Reply: res.Reply, SessionID: res.SessionID, CostUSD: res.CostUSD}, err
 }

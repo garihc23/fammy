@@ -1013,3 +1013,69 @@ func TestAsidesAndCaptionCap(t *testing.T) {
 		t.Errorf("caption(short) = %q", got)
 	}
 }
+
+type fakeWatcher struct {
+	release chan struct{}
+	conv    chan string
+}
+
+func (w fakeWatcher) WaitForFo(ctx context.Context, conv string) (string, string, error) {
+	w.conv <- conv
+	<-w.release
+	return "complete", "Booked for 7 pm at Toit.", nil
+}
+
+// A Fo errand still working when the turn ends goes on in the background;
+// when Fo settles, the brain starts a turn to report it.
+func TestFoErrandInTheBackground(t *testing.T) {
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		if n == 1 {
+			onEvent(Event{Kind: "tool_call", Tool: "ask_fo", Text: "Asking Fo: Book a table for 4 at Toit tonight"})
+			onEvent(Event{Kind: "fo_progress", Tool: "ask_fo", Text: "Working for 40s", Status: "working", FoConversation: "c1"})
+			return Result{Reply: "Fo's on it, I'll tell you when it's done.", SessionID: "s"}, nil
+		}
+		return Result{Reply: "Your table at Toit is booked for 7.", SessionID: "s"}, nil
+	}}
+	w := fakeWatcher{release: make(chan struct{}), conv: make(chan string, 1)}
+	b, dev := newBrain(t, th, func(c *Config) { c.FoWatcher = w })
+	b.DeviceFrame(textEvent("book a table at Toit"))
+
+	away := dev.waitFor(t, "fo away", func(r rec) bool { return r.Kind == "command" && r.Command["state"] == "away" })
+	if away.Command["id"] != "f1" || away.Command["task"] == "" {
+		t.Errorf("away command = %v", away.Command)
+	}
+	dev.waitFor(t, "first reply", isSay("Fo's on it, I'll tell you when it's done."))
+	if c := <-w.conv; c != "c1" {
+		t.Errorf("watching %q, want c1", c)
+	}
+	if s := b.Status(); s.Errands != 1 || !s.Busy {
+		t.Errorf("status while Fo is out = %+v", s)
+	}
+
+	close(w.release) // Fo is done
+	dev.waitFor(t, "report", isSay("Your table at Toit is booked for 7."))
+	recs := dev.all()
+	back, report := -1, -1
+	for i, r := range recs {
+		if r.Kind == "command" && r.Command["state"] == "back" && r.Command["id"] == "f1" && r.Command["ok"] == true {
+			back = i
+		}
+		if r.Kind == "say" && r.Text == "Your table at Toit is booked for 7." {
+			report = i
+		}
+	}
+	if back < 0 || back > report {
+		t.Errorf("fo back (%d) should come before the report (%d): %+v", back, report, recs)
+	}
+	calls := th.Calls()
+	if len(calls) != 2 || !strings.Contains(calls[1].Text, "[Fo has finished an errand from earlier (Book a table for 4 at Toit tonight). Status: complete. Fo says: Booked for 7 pm at Toit.]") || calls[1].Session != "s" {
+		t.Errorf("report turn = %+v", calls)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for b.Status().Errands != 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if b.Status().Errands != 0 {
+		t.Error("the errand is still counted after its report")
+	}
+}

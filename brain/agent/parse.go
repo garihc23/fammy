@@ -76,6 +76,7 @@ type foReply struct {
 	Response       string
 	Progress       string
 	ElapsedSeconds float64
+	ConversationID string
 }
 
 type parser struct {
@@ -222,10 +223,10 @@ func (p *parser) handleUser(l *streamLine) {
 					msg = fmt.Sprintf("Fo is working (%ds)", int(reply.ElapsedSeconds))
 				}
 			}
-			p.send(Event{Kind: KindFoProgress, Tool: tool, Text: msg, Status: reply.Status})
+			p.send(Event{Kind: KindFoProgress, Tool: tool, Text: msg, Status: reply.Status, FoConversation: reply.ConversationID})
 		case ok:
 			// complete, failed, or any other settled state (e.g. Fo waiting on the user).
-			p.send(Event{Kind: KindFoDone, Tool: tool, Text: reply.Response, Status: reply.Status})
+			p.send(Event{Kind: KindFoDone, Tool: tool, Text: reply.Response, Status: reply.Status, FoConversation: reply.ConversationID})
 		case b.IsError:
 			p.send(Event{Kind: KindFoDone, Tool: tool, Text: text, Status: "failed"})
 		case strings.TrimSpace(text) != "":
@@ -353,6 +354,8 @@ func foReplyFromMap(m map[string]any) (foReply, bool) {
 		Status:   strings.ToLower(strings.TrimSpace(str("status"))),
 		Response: str("response"),
 		Progress: str("progress"),
+
+		ConversationID: str("conversationId"),
 	}
 	if n, ok := m["elapsedSeconds"].(float64); ok {
 		r.ElapsedSeconds = n

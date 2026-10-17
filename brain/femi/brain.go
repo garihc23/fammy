@@ -64,6 +64,15 @@ type Event struct {
 	Tool   string // short tool name, e.g. "ask_fo", "set_reminder"
 	Text   string
 	Status string
+
+	FoConversation string // fo_progress/fo_done: which Fo errand
+}
+
+// FoWatcher waits, outside the conversation, for a Fo errand to settle and
+// returns Fo's final status ("complete", "failed", or Fo waiting on the
+// person) and response.
+type FoWatcher interface {
+	WaitForFo(ctx context.Context, conversationID string) (status, text string, err error)
 }
 
 // Result of one Claude turn.
@@ -103,6 +112,7 @@ type Config struct {
 	Reminders *remind.Scheduler
 	Profile   *Profile
 	FamilyDir string
+	FoWatcher FoWatcher                        // optional: Fo errands still working when a turn ends carry on in the background
 	Camera    Camera                           // optional: look_at_camera
 	FoVoice   string                           // replay_call: voice for Fo's side of a call
 	CallVoice string                           // replay_call: voice for the person Fo called
@@ -138,6 +148,8 @@ type Brain struct {
 	stopActive context.CancelFunc // stops the request in progress (a tap on the device)
 	activeCtx  context.Context    // that request's context, for audio its tools start
 	lastPhoto  time.Time          // when look_at_camera last took a photo
+	errandN    int
+	errands    map[string]*errand // Fo errands running in the background, by id
 }
 
 // New returns a brain; call it before the link starts serving.
@@ -169,6 +181,7 @@ func New(cfg Config) *Brain {
 		out:       make(chan func(), 64),
 		approvals: map[string]chan string{},
 		phrases:   map[string][]byte{},
+		errands:   map[string]*errand{},
 	}
 	go func() {
 		for f := range b.out {
@@ -307,6 +320,15 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 
 func (b *Brain) hello() {
 	_ = b.cfg.Device.State("idle", "Brain connected")
+	b.mu.Lock()
+	var out []*errand
+	for _, e := range b.errands {
+		out = append(out, e)
+	}
+	b.mu.Unlock()
+	for _, e := range out { // the device may have rebooted: Fo is still out with these
+		_ = b.cfg.Device.Command(foCommand{Type: "fo", State: "away", Task: e.task, ID: e.id})
+	}
 	if b.cfg.Reminders == nil {
 		return
 	}
@@ -325,6 +347,7 @@ type Status struct {
 	Busy      bool      `json:"busy"`
 	Recording bool      `json:"recording"`
 	Turn      bool      `json:"turn"`
+	Errands   int       `json:"errands"` // Fo errands still out (a restart would lose their reports)
 	LastTurn  time.Time `json:"last_turn"`
 }
 
@@ -332,7 +355,8 @@ func (b *Brain) Status() Status {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	turn := len(b.turn) > 0
-	return Status{Busy: turn || b.recording, Recording: b.recording, Turn: turn, LastTurn: b.lastTurn}
+	return Status{Busy: turn || b.recording || len(b.errands) > 0, Recording: b.recording, Turn: turn,
+		Errands: len(b.errands), LastTurn: b.lastTurn}
 }
 
 func (b *Brain) tryTurn() bool {
@@ -476,11 +500,17 @@ func tooShort(s string) bool {
 // runTurn runs one Claude turn and speaks the reply. The caller holds the
 // turn slot.
 func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Duration) {
+	b.turnWith(ctx, source, text, stt, nil)
+}
+
+// turnWith runs a turn; beforeSpeak (may be nil) runs once Claude is done,
+// just before anything is said.
+func (b *Brain) turnWith(ctx context.Context, source, text string, stt time.Duration, beforeSpeak func()) {
 	b.mu.Lock()
 	b.turnN++
 	n := b.turnN
 	now := b.cfg.Now()
-	if b.session != "" && now.Sub(b.lastTurn) > b.cfg.IdleReset {
+	if b.session != "" && now.Sub(b.lastTurn) > b.cfg.IdleReset && source != "fo" { // an errand's report belongs to its conversation
 		b.logf("turn %d: idle for %s, starting a fresh conversation", n, now.Sub(b.lastTurn).Round(time.Minute))
 		b.session = ""
 	}
@@ -500,7 +530,19 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	defer cancel()
 	var events []string
 	lastLine := ""
+	lastAsk := ""
+	open := map[string]*errand{} // Fo errands still working, by Fo conversation
 	onEvent := func(e Event) {
+		switch {
+		case e.Kind == "tool_call" && e.Tool == "ask_fo":
+			lastAsk = strings.TrimPrefix(e.Text, "Asking Fo: ")
+		case e.Kind == "fo_progress" && e.Status == "working" && e.FoConversation != "":
+			if open[e.FoConversation] == nil {
+				open[e.FoConversation] = &errand{conv: e.FoConversation, asked: lastAsk, task: foTask(lastAsk)}
+			}
+		case e.Kind == "fo_done" && e.FoConversation != "":
+			delete(open, e.FoConversation)
+		}
 		b.logf("turn %d: %s %s %q", n, e.Kind, e.Tool, clip(e.Text, 160))
 		events = append(events, e.Kind+":"+e.Tool)
 		line := ""
@@ -526,7 +568,11 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	stamped := fmt.Sprintf("[%s%s%s] %s", now.Format("Mon 2 Jan 2006, 15:04"), b.waitingNote(), b.photoNote(now), text)
 	res, err := b.cfg.Thinker.Think(tctx, session, stamped, onEvent)
 	took := time.Since(start)
+	b.background(open) // Fo keeps going with whatever it was still working on; Famyy reports when it's done
 	b.flushStates()
+	if beforeSpeak != nil {
+		beforeSpeak()
+	}
 
 	if err != nil {
 		b.mu.Lock()
@@ -584,9 +630,10 @@ type heardCommand struct {
 
 type foCommand struct {
 	Type  string `json:"type"`
-	State string `json:"state"`
+	State string `json:"state"` // start | done (within a turn) | away | back (an errand in the background)
 	Task  string `json:"task,omitempty"`
 	OK    bool   `json:"ok"`
+	ID    string `json:"id,omitempty"` // away/back: which errand
 }
 
 // foTasks maps words in a request to Fo onto the icon for that kind of job;
@@ -898,6 +945,56 @@ func (b *Brain) photoNote(now time.Time) string {
 		return ""
 	}
 	return fmt.Sprintf(" | last camera photo %s (%d min ago)", at.Format("15:04"), int(now.Sub(at).Minutes()))
+}
+
+// ---- background Fo errands ----
+
+const errandMax = 30 * time.Minute
+
+type errand struct {
+	id, conv, asked, task string
+}
+
+// background hands Fo errands that were still working when the turn ended to
+// the FoWatcher: Fo goes "away" with each, and comes "back" with a report turn.
+func (b *Brain) background(open map[string]*errand) {
+	if b.cfg.FoWatcher == nil || len(open) == 0 {
+		return
+	}
+	for _, e := range open {
+		b.mu.Lock()
+		b.errandN++
+		e.id = fmt.Sprintf("f%d", b.errandN)
+		b.errands[e.id] = e
+		b.mu.Unlock()
+		b.logf("errand %s: Fo is still on %q, waiting in the background", e.id, clip(e.asked, 120))
+		b.commandAsync(foCommand{Type: "fo", State: "away", Task: e.task, ID: e.id})
+		go b.watchErrand(e)
+	}
+}
+
+func (b *Brain) watchErrand(e *errand) {
+	ctx, cancel := context.WithTimeout(context.Background(), errandMax)
+	defer cancel()
+	status, text, err := b.cfg.FoWatcher.WaitForFo(ctx, e.conv)
+	if err != nil {
+		status, text = "failed", "Fo didn't report back ("+err.Error()+")"
+	}
+	b.logf("errand %s settled: %s %q", e.id, status, clip(text, 160))
+
+	b.turn <- struct{}{} // after whatever is going on now
+	defer b.endTurn()
+	b.mu.Lock()
+	delete(b.errands, e.id)
+	b.mu.Unlock()
+	ctx, done := b.activity()
+	defer done()
+	msg := fmt.Sprintf("[Fo has finished an errand from earlier (%s). Status: %s. Fo says: %s] "+
+		"Tell the person the outcome in a sentence or two; if Fo needs an answer or an approval, ask for it.",
+		clip(e.asked, 200), status, text)
+	b.turnWith(ctx, "fo", msg, 0, func() {
+		_ = b.cfg.Device.Command(foCommand{Type: "fo", State: "back", OK: status != "failed", ID: e.id}) // Fo walks in with it
+	})
 }
 
 // waitingNote tells Claude, inside the time stamp, which reminders went off
