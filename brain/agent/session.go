@@ -35,9 +35,11 @@ type Session struct {
 	closed  atomic.Bool // set the moment it is killed or closed, before the process is gone
 	drain   sync.Once
 
-	mu       sync.Mutex // one turn at a time
-	id       string     // Claude's session id, known after the first turn
+	mu       sync.Mutex // one turn at a time (held for the whole turn)
 	lastCost float64    // the result's total_cost_usd is a running total for the process
+
+	meta     sync.Mutex // id and lastUsed: readable while a turn runs, so a long turn never blocks ID or Idle
+	id       string     // Claude's session id, known after the first turn
 	lastUsed time.Time
 }
 
@@ -105,8 +107,8 @@ func StartSession(opts Options, resumeID string) (*Session, error) {
 // ID is Claude's session id: the resume id it was started with, or the id
 // Claude reported on the first turn. "" before then.
 func (s *Session) ID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.meta.Lock()
+	defer s.meta.Unlock()
 	return s.id
 }
 
@@ -128,8 +130,8 @@ func (s *Session) Alive() bool {
 func (s *Session) Age() time.Duration { return time.Since(s.started) }
 
 func (s *Session) Idle() time.Duration {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.meta.Lock()
+	defer s.meta.Unlock()
 	return time.Since(s.lastUsed)
 }
 
@@ -139,8 +141,9 @@ func (s *Session) Idle() time.Duration {
 func (s *Session) Turn(ctx context.Context, text string, onEvent func(Event)) (Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	id := s.ID()
 	if !s.Alive() {
-		return Result{SessionID: s.id}, fmt.Errorf("%w%s", ErrSessionClosed, s.stderr.suffix())
+		return Result{SessionID: id}, fmt.Errorf("%w%s", ErrSessionClosed, s.stderr.suffix())
 	}
 	timeout := s.opts.Timeout
 	if timeout <= 0 {
@@ -154,10 +157,14 @@ func (s *Session) Turn(ctx context.Context, text string, onEvent func(Event)) (R
 		"message": map[string]any{"role": "user", "content": text},
 	})
 	start := time.Now()
-	defer func() { s.lastUsed = time.Now() }()
+	defer func() {
+		s.meta.Lock()
+		s.lastUsed = time.Now()
+		s.meta.Unlock()
+	}()
 	if _, err := s.stdin.Write(append(msg, '\n')); err != nil {
 		s.kill()
-		return Result{SessionID: s.id}, fmt.Errorf("agent: send turn: %w%s", err, s.stderr.suffix())
+		return Result{SessionID: id}, fmt.Errorf("agent: send turn: %w%s", err, s.stderr.suffix())
 	}
 
 	p := newParser(onEvent)
@@ -186,7 +193,9 @@ func (s *Session) Turn(ctx context.Context, text string, onEvent func(Event)) (R
 		s.lastCost = total
 	}
 	if res.SessionID != "" {
+		s.meta.Lock()
 		s.id = res.SessionID
+		s.meta.Unlock()
 	}
 	return res, p.turnErr
 }

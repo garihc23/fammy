@@ -109,3 +109,27 @@ func TestSessionResumeID(t *testing.T) {
 		t.Errorf("args %q lack --resume=old-7", args)
 	}
 }
+
+// A long turn (a Fo errand) must not block ID or Idle: the brain's spare
+// recycler reads them, and shutdown waits on the recycler's lock.
+func TestSessionMetaDuringATurn(t *testing.T) {
+	t.Setenv("FAKE_DIR", t.TempDir())
+	s, err := StartSession(Options{ClaudePath: fakeClaude(t, `read -r line; sleep 30`), WorkDir: t.TempDir(), Timeout: 5 * time.Second}, "s-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	go s.Turn(context.Background(), "a long errand", nil)
+	time.Sleep(200 * time.Millisecond) // the turn is now waiting on Claude
+	done := make(chan struct{})
+	go func() {
+		_ = s.ID()
+		_ = s.Idle()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ID/Idle blocked behind a running turn")
+	}
+}
