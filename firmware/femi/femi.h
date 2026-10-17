@@ -19,7 +19,7 @@ struct FemiView {
   bool speaking;                  // a reply is playing
   bool aside;                     // ...but not the request's answer (a reminder, "noted"): the request carries on
   bool busyBeforeAside;           // whether a request was in flight when the aside began
-  char caption[256];              // what Femi is saying, shown in the terminal
+  char caption[448];              // what Famyy is saying, shown in its speech bubble (the brain caps it at 400)
   uint32_t speakSince, speakMs;   // when it started, and how long the audio is
 
   bool approve;                   // waiting for tap (yes) / hold (no)
