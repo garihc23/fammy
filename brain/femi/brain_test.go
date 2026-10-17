@@ -893,3 +893,34 @@ func TestPhotoAgeInTheTimeStamp(t *testing.T) {
 		t.Errorf("stamp lacks the photo's age: %+v", calls)
 	}
 }
+
+func TestStatusShowsATurnInFlight(t *testing.T) {
+	release := make(chan struct{})
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		<-release // Fo on a long errand
+		return Result{Reply: "found three outfits"}, nil
+	}}
+	b, dev := newBrain(t, th, nil)
+	if b.Status().Busy {
+		t.Fatal("busy before anything happened")
+	}
+	b.DeviceFrame(textEvent("find me wedding outfits"))
+	deadline := time.Now().Add(3 * time.Second)
+	for !b.Status().Turn {
+		if time.Now().After(deadline) {
+			t.Fatal("status never showed the turn")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !b.Status().Busy {
+		t.Error("a turn in flight should be busy")
+	}
+	close(release)
+	dev.waitFor(t, "reply", isSay("found three outfits"))
+	for b.Status().Busy {
+		if time.Now().After(deadline) {
+			t.Fatal("still busy after the reply")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

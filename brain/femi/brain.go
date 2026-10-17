@@ -318,6 +318,23 @@ func (b *Brain) hello() {
 
 // ---- turns ----
 
+// Status says whether anything is in flight: a recording arriving, a turn
+// (Claude thinking, Fo on an errand, the reply being spoken). Restart the
+// brain only when Busy is false, or that work is lost.
+type Status struct {
+	Busy      bool      `json:"busy"`
+	Recording bool      `json:"recording"`
+	Turn      bool      `json:"turn"`
+	LastTurn  time.Time `json:"last_turn"`
+}
+
+func (b *Brain) Status() Status {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	turn := len(b.turn) > 0
+	return Status{Busy: turn || b.recording, Recording: b.recording, Turn: turn, LastTurn: b.lastTurn}
+}
+
 func (b *Brain) tryTurn() bool {
 	select {
 	case b.turn <- struct{}{}:

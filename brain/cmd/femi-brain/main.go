@@ -26,6 +26,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -155,6 +156,11 @@ func main() {
 	tools.Logf = log.Printf
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", tools)
+	// GET /status: {"busy":false,...}; restarts wait until nothing is in flight
+	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(brain.Status())
+	})
 	httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := httpSrv.Serve(toolsLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
