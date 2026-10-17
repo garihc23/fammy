@@ -33,4 +33,5 @@ void playerSfx(Sfx s);
 void playerClip(int clip);                         // a stored spoken clip (clips.h)
 void playerClipOf(int first, int count);           // the next clip of a group, in turn
 bool playerQuiet();                                // nothing playing or waiting to play
+uint32_t playerQuietMs();                          // how long since the speaker last made a sound
 void playerMusic(bool on);                         // soft music while Famyy waits; fades in and out, never over speech

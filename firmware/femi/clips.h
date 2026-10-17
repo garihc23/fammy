@@ -13,4 +13,5 @@ const int CLIP_OFFLINE = 14, CLIP_OFFLINE_N = 1;
 const int CLIP_YES = 15, CLIP_YES_N = 2;
 const int CLIP_NO = 17, CLIP_NO_N = 1;
 const int CLIP_STOPPED = 18, CLIP_STOPPED_N = 1;
-const int CLIP_COUNT = 19;
+const int CLIP_REMIND_HOW = 19, CLIP_REMIND_HOW_N = 1;
+const int CLIP_COUNT = 20;

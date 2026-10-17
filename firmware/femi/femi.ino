@@ -39,6 +39,7 @@ volatile Ask asking = ASK_NONE;
 volatile int appReq = APP_NONE;
 volatile bool approvalOpen = false;
 volatile int voiceAnswer = -1;
+volatile bool remindOpen = false;
 
 void setup() {
   Serial.begin(115200);
@@ -187,16 +188,50 @@ void loop() {
     faceRepaint();
   }
 
-  // a reminder, until tapped
+  // a card that went away some other way (the link dropped) stops waiting for its spoken answer
+  if (!v.remind && remindOpen) {
+    remindOpen = false;
+    voiceAnswer = -1;
+  }
+  if (!v.approve && approvalOpen) {
+    approvalOpen = false;
+    voiceAnswer = -1;
+  }
+
+  // a reminder, until someone taps or says "done"; Famyy says how, once the reminder has been read out,
+  // and again (with the bell) every 90 s until it's acknowledged
+  static uint32_t remindShown = 0, nextHow = 0;
+  static bool readOut = false;
   if (v.remind) {
-    if (touch.tapped) {
+    if (!remindOpen) {
+      remindOpen = true;
+      voiceAnswer = -1;
+      speechRearm();   // listen for "done"
+      remindShown = now;
+      nextHow = 0;
+      readOut = false;
+    }
+    if (v.speaking) readOut = true;
+    bool quiet = !v.speaking && playerQuiet();
+    if (nextHow == 0 && quiet && (readOut || now - remindShown > 3000)) {
+      playerClip(CLIP_REMIND_HOW);   // "Say done, or tap me, when it's done."
+      nextHow = now + 90000;
+    } else if (nextHow && now >= nextHow && quiet) {
+      playerSfx(SFX_BELL);
+      playerClip(CLIP_REMIND_HOW);
+      nextHow = now + 90000;
+    }
+    if (touch.tapped || voiceAnswer == 1) {
       char j[64];
       snprintf(j, sizeof j, "{\"type\":\"ack\",\"id\":\"%s\"}", v.remindId);
       netSend(F_EVENT, j);
       clearFlag(&FemiView::remind);
       touch.tapped = false;
+      remindOpen = false;
+      voiceAnswer = -1;
+      if (v.busy) speechPause();   // a request was in flight: no wake phrase until it's done
     } else {
-      faceCardFrame(now, true, "Reminder", v.remindText, "tap when done", 0);
+      faceCardFrame(now, true, "Reminder", v.remindText, "say done / tap", 0);
       delay(10);
       return;
     }

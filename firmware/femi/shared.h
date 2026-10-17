@@ -13,3 +13,4 @@ extern volatile Ask asking;           // open question a spoken number would ans
 extern volatile int appReq;           // APP_* to start, APP_QUIT to leave, APP_NONE for nothing
 extern volatile bool approvalOpen;    // an approval card is up: "yes" / "no" are answers
 extern volatile int voiceAnswer;      // a spoken answer to it: 1 yes, 0 no, -1 none yet
+extern volatile bool remindOpen;      // a reminder card is up: "done" acknowledges it (voiceAnswer = 1)

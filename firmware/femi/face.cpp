@@ -148,7 +148,6 @@ static BubbleStyle bubbleStyle() { return {th->bubble, th->ink, th->ink, &FreeSa
 static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   GFXcanvas16 *c = stage;
   c->fillScreen(th->bg);
-  c->drawFastHLine(0, GROUND_Y + 1, 320, th->rain);   // the floor
 
   // code rain, in hacking mode
   if (th->hacker) {

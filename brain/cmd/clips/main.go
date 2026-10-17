@@ -33,6 +33,7 @@ var groups = []struct {
 	{"YES", []string{"On it!", "Great, doing it now."}},
 	{"NO", []string{"Okay, I won't."}},
 	{"STOPPED", []string{"Okay, I'll stop."}},
+	{"REMIND_HOW", []string{"Say done, or tap me, when it's done."}},
 }
 
 const rate = 16000

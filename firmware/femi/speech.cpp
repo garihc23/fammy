@@ -8,7 +8,7 @@
 
 enum {
   CMD_HAPPY, CMD_SLEEP, CMD_WAKE, CMD_MUSIC, CMD_STOP, CMD_THINK, CMD_HACK, CMD_NORMAL,
-  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY, CMD_YES, CMD_NO,
+  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY, CMD_YES, CMD_NO, CMD_DONE,
   CMD_NUM_FIRST   // number phrase k gets command id CMD_NUM_FIRST + k
 };
 
@@ -17,7 +17,7 @@ static const int NUMBERS[] = {1, 2, 3, 5, 10, 15, 20, 30, 45, 60};
 
 static const char *cmdNames[] = {
   "HAPPY", "SLEEP", "WAKE", "MUSIC", "STOP", "THINK", "HACK", "NORMAL",
-  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY", "YES", "NO"
+  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY", "YES", "NO", "DONE"
 };
 
 // keep phrases short and distinct: long phrases and near-duplicates are missed or confused
@@ -73,6 +73,12 @@ static const sr_cmd_t commands[] = {
   {CMD_NO,        "no thanks"},
   {CMD_NO,        "cancel that"},
   {CMD_NO,        "do not"},
+  // "I've done it", for a reminder
+  {CMD_DONE,      "done"},
+  {CMD_DONE,      "all done"},
+  {CMD_DONE,      "okay done"},
+  {CMD_DONE,      "got it"},
+  {CMD_DONE,      "i took it"},
   // numbers: reusable answers to any "how much / how long" question
   {CMD_NUM_FIRST + 0, "one"},
   {CMD_NUM_FIRST + 1, "two"},
@@ -141,15 +147,23 @@ static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
       onWake();
       break;
     case SR_EVENT_COMMAND:
+      if (remindOpen) {   // a reminder card is up: "done" (or "yes") acknowledges it, but not Famyy's own voice
+        if ((command_id == CMD_DONE || command_id == CMD_YES) && playerQuietMs() > 1200) {
+          Serial.println(">> reminder: done");
+          voiceAnswer = 1;
+        }
+        ESP_SR.setMode(SR_MODE_COMMAND);
+        break;
+      }
       if (approvalOpen) {   // an approval card is up: only "yes" and "no" count, and not Famyy's own voice
-        if ((command_id == CMD_YES || command_id == CMD_NO) && !playerBusy()) {
+        if ((command_id == CMD_YES || command_id == CMD_NO) && playerQuietMs() > 1200) {
           Serial.printf(">> answer: %s\n", command_id == CMD_YES ? "yes" : "no");
           voiceAnswer = command_id == CMD_YES ? 1 : 0;
         }
         ESP_SR.setMode(SR_MODE_COMMAND);
         break;
       }
-      if (command_id == CMD_YES || command_id == CMD_NO) {   // nothing to answer
+      if (command_id == CMD_YES || command_id == CMD_NO || command_id == CMD_DONE) {   // nothing to answer
         speechRearm();
         break;
       }

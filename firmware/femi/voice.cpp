@@ -134,10 +134,12 @@ static const int CLIP_BASE = 100;
 static const uint32_t CUE_STALE_MS = 2000;
 static QueueHandle_t cues;
 static volatile bool cueing = false;
+static volatile uint32_t lastSound = 0;   // when the speaker last played anything but silence
 
 Ring &speakRing() { return spk; }
 bool playerBusy() { return playing; }
 int playerLevel() { return playLevel; }
+uint32_t playerQuietMs() { return playing || cueing ? 0 : millis() - lastSound; }
 bool playerQuiet() { return !playing && !cueing && uxQueueMessagesWaiting(cues) == 0 && spk.available() == 0; }
 
 static void cue(int code) {
@@ -372,6 +374,7 @@ static void playerTask(void *) {
         if (q.code >= CLIP_BASE) playClip(CLIPS[q.code - CLIP_BASE]);
         else playSfx(q.code);
         cueing = false;
+        lastSound = millis();
       }
       continue;
     }
@@ -387,6 +390,7 @@ static void playerTask(void *) {
       }
       playLevel = (int)sqrtf((float)(ss / count));
       amp.write((uint8_t *)buf, n);
+      lastSound = millis();
       continue;
     }
     playLevel = 0;

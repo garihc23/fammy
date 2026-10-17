@@ -67,7 +67,6 @@ static uint32_t statusSince = 0;
 // face.cpp's drawStage, minus the display
 static void frame(uint32_t t, const Moment &m) {
   stage.fillScreen(PAL.bg);
-  stage.drawFastHLine(0, GROUND_Y + 1, 320, PAL.soft);
   const char *status = m.w.status ? m.w.status : "";
   if (strncmp(status, shownStatus, sizeof shownStatus - 1) != 0) {
     strlcpy(shownStatus, status, sizeof shownStatus);
