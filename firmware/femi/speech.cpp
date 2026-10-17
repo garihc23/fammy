@@ -8,7 +8,7 @@
 
 enum {
   CMD_HAPPY, CMD_SLEEP, CMD_WAKE, CMD_MUSIC, CMD_STOP, CMD_THINK, CMD_HACK, CMD_NORMAL,
-  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY,
+  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY, CMD_YES, CMD_NO,
   CMD_NUM_FIRST   // number phrase k gets command id CMD_NUM_FIRST + k
 };
 
@@ -17,7 +17,7 @@ static const int NUMBERS[] = {1, 2, 3, 5, 10, 15, 20, 30, 45, 60};
 
 static const char *cmdNames[] = {
   "HAPPY", "SLEEP", "WAKE", "MUSIC", "STOP", "THINK", "HACK", "NORMAL",
-  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY"
+  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY", "YES", "NO"
 };
 
 // keep phrases short and distinct: long phrases and near-duplicates are missed or confused
@@ -64,6 +64,15 @@ static const sr_cmd_t commands[] = {
   {CMD_HEY,       "hi femy"},
   {CMD_HEY,       "hey femmy"},
   {CMD_HEY,       "hi femmy"},
+  // answers to "OK to do this?"
+  {CMD_YES,       "yes"},
+  {CMD_YES,       "yes please"},
+  {CMD_YES,       "go ahead"},
+  {CMD_YES,       "do it"},
+  {CMD_NO,        "no"},
+  {CMD_NO,        "no thanks"},
+  {CMD_NO,        "cancel that"},
+  {CMD_NO,        "do not"},
   // numbers: reusable answers to any "how much / how long" question
   {CMD_NUM_FIRST + 0, "one"},
   {CMD_NUM_FIRST + 1, "two"},
@@ -132,6 +141,18 @@ static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
       onWake();
       break;
     case SR_EVENT_COMMAND:
+      if (approvalOpen) {   // an approval card is up: only "yes" and "no" count, and not Famyy's own voice
+        if ((command_id == CMD_YES || command_id == CMD_NO) && !playerBusy()) {
+          Serial.printf(">> answer: %s\n", command_id == CMD_YES ? "yes" : "no");
+          voiceAnswer = command_id == CMD_YES ? 1 : 0;
+        }
+        ESP_SR.setMode(SR_MODE_COMMAND);
+        break;
+      }
+      if (command_id == CMD_YES || command_id == CMD_NO) {   // nothing to answer
+        speechRearm();
+        break;
+      }
       if (command_id == CMD_HEY) {
         onWake();
         break;

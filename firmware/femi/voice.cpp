@@ -49,7 +49,8 @@ bool voiceStart(const char *trigger) {
   netSend(F_AUDIO_START, j);   // queued before any audio, so the brain sees START first
   setBusy(true);
   femiLock();
-  femiView().heard[0] = 0;     // a new request: forget what was heard last time
+  femiView().heard[0] = 0;     // a new request: forget what was heard last time, and how it went
+  femiView().line[0] = 0;
   femiUnlock();
   listening = true;
   recording = true;
@@ -214,6 +215,21 @@ static void whoosh(int ms, float level) {
   }
 }
 
+// a quick rising sine: a bubbly pop
+static void sweep(float from, float to, int ms, float level) {
+  int n = 16 * ms;
+  float ph = 0;
+  for (int i = 0; i < n; i += 256) {
+    int m = min(256, n - i);
+    for (int j = 0; j < m; j++) {
+      float u = (float)(i + j) / n;
+      fx[j] = (int16_t)(sinf(ph) * level * sinf(PI * u) * SPEAKER_VOLUME);
+      ph += 2 * PI * (from + (to - from) * u) / 16000;
+    }
+    amp.write((uint8_t *)fx, m * 2);
+  }
+}
+
 static void playSfx(int s) {
   switch (s) {
     case SFX_READY:  tone(660, 100, 5000, 0); tone(880, 100, 5000, 0); break;    // rising: I'm listening
@@ -222,6 +238,64 @@ static void playSfx(int s) {
     case SFX_WHOOSH: whoosh(320, 9000); break;                                    // Fo comes or goes
     case SFX_CLINK:  tone(1568, 260, 3800, 70, 0.5f); break;                      // the handshake
     case SFX_DING:   tone(1047, 90, 4200, 120, 0.4f); tone(1568, 480, 4200, 160, 0.4f); break;   // done!
+    case SFX_POP:    sweep(320, 980, 70, 2600); break;                            // words appear in a bubble
+    case SFX_SPARKLE:                                                             // caught it!
+      for (float hz : {1568.0f, 1976.0f, 2349.0f, 3136.0f}) tone(hz, 70, 2200, 60, 0.3f);
+      tone(4186, 260, 1600, 90, 0.2f);
+      break;
+    case SFX_JINGLE:                                                              // hello, I'm awake
+      tone(784, 120, 3600, 140, 0.3f); tone(988, 120, 3600, 140, 0.3f); tone(1175, 120, 3600, 140, 0.3f);
+      tone(1568, 420, 3800, 220, 0.4f);
+      break;
+  }
+}
+
+// ---------- music while waiting ----------
+// A slow tune made on the spot, so a long wait feels like a moment rather than a silence:
+// a warm chord loop (Am F C G) underneath and a music-box melody wandering over a pentatonic scale.
+
+static volatile bool musicWanted = false;
+static float musicGain = 0;   // fades in and out
+static uint32_t musicAt = 0;  // samples into the tune
+static float sineTable[1025];
+
+void playerMusic(bool on) { musicWanted = on; }
+
+static inline float sine(float phase) {   // phase in turns: a table look-up, much cheaper than sinf
+  float x = (phase - floorf(phase)) * 1024;
+  int i = (int)x;
+  return sineTable[i] + (sineTable[i + 1] - sineTable[i]) * (x - i);
+}
+
+static void musicChunk(int16_t *out, int n) {
+  static const float CHORDS[4][3] = {{220.00f, 261.63f, 329.63f}, {174.61f, 220.00f, 261.63f},
+                                     {196.00f, 261.63f, 329.63f}, {196.00f, 246.94f, 293.66f}};
+  static const float SCALE[7] = {523.25f, 587.33f, 659.25f, 783.99f, 880.00f, 1046.50f, 1174.66f};
+  static const int NOTE = 16000 * 3 / 8;   // a melody step every 0.375 s; a chord lasts 8 of them
+  static float padPh[3], melPh, melEnv, melHz = 659.25f;
+  static int degree = 2;
+  for (int i = 0; i < n; i++, musicAt++) {
+    float target = musicWanted ? MUSIC_VOLUME : 0;
+    musicGain += (target - musicGain) * (musicWanted ? 0.00004f : 0.0004f);   // ~1.5 s in, ~0.15 s out
+    if (musicAt % NOTE == 0) {   // the next melody note, or a rest
+      uint32_t r = esp_random();
+      if (r % 10 < 7) {
+        degree = constrain(degree + (int)(r >> 8) % 5 - 2, 0, 6);
+        melHz = SCALE[degree];
+        melEnv = 1;
+      }
+    }
+    const float *chord = CHORDS[(musicAt / (NOTE * 8)) % 4];
+    float pad = 0;
+    for (int k = 0; k < 3; k++) {
+      padPh[k] += chord[k] / 16000;
+      pad += sine(padPh[k]);
+    }
+    float swell = 0.75f + 0.25f * sine(musicAt / 96000.0f);   // the chord breathes, slowly
+    melPh += melHz / 16000;
+    melEnv *= 0.99975f;                                        // a music-box note rings out over ~0.25 s
+    float mel = (sine(melPh) + 0.3f * sine(2 * melPh)) * melEnv;
+    out[i] = (int16_t)((pad * 420 * swell + mel * 1500) * musicGain * SPEAKER_VOLUME);
   }
 }
 
@@ -254,7 +328,7 @@ static void playerTask(void *) {
       femiView().speaking = false;
       femiView().busy = false;
       femiUnlock();
-      cue(SFX_SOFT);
+      cue(CLIP_BASE + CLIP_STOPPED);   // "Okay, I'll stop."
     }
     Cue q;
     if (!playing && spk.available() == 0 && xQueueReceive(cues, &q, 0) == pdTRUE) {
@@ -297,13 +371,19 @@ static void playerTask(void *) {
       netSend(F_EVENT, j);
       if (followUp) voiceStart("followup");
     }
-    memset(buf, 0, 512);   // keep the amp fed with silence (~16 ms) so it never repeats old audio
+    if (musicWanted || musicGain > 0.001f) {
+      musicChunk(buf, 256);   // music while waiting, instead of silence
+    } else {
+      memset(buf, 0, 512);    // keep the amp fed with silence (~16 ms) so it never repeats old audio
+      musicAt = 0;            // the tune starts from the top next time
+    }
     amp.write((uint8_t *)buf, 512);
   }
 }
 
 void playerBegin() {
   cues = xQueueCreate(8, sizeof(Cue));
+  for (int i = 0; i <= 1024; i++) sineTable[i] = sinf(2 * PI * i / 1024);
   mic.begin(64 * 1024);        // 2 s of recording backlog
   spk.begin(512 * 1024);       // 16 s of reply audio
   amp.setPins(AMP_BCLK, AMP_LRC, AMP_DIN);

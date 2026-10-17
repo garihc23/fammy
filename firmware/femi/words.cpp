@@ -5,7 +5,8 @@ static const int CLOUD_X = 174, CLOUD_W = 134;
 
 Side sideWords(uint32_t t, const Scene &s, const char **text, int *n) {
   const Words &w = *s.w;
-  if (s.p->phase != PH_NONE) return SIDE_NONE;   // Fo's visit has the stage
+  bool fo = s.p->phase != PH_NONE;
+  if (fo && !(s.p->phase == PH_LEAVE && s.face == TALKING)) return SIDE_NONE;   // Fo's visit has the stage, until it walks off
   if (s.face == TALKING && w.reply && w.reply[0]) {
     int len = strlen(w.reply);
     int chars = (int)((uint64_t)(t - w.replySince + 250) * len / max(w.replyMs, (uint32_t)1));   // each word as it's said
@@ -13,12 +14,18 @@ Side sideWords(uint32_t t, const Scene &s, const char **text, int *n) {
     *n = max(wordsUpTo(w.reply, chars), firstWords(w.reply, 1));
     return SIDE_SPEECH;
   }
-  if (s.face == THINKING || s.face == WORKING) {
+  if (!fo && (s.face == THINKING || s.face == WORKING)) {
+    // the cloud is there as soon as you stop talking, "..." until your words arrive, then they fill in quickly
     bool heard = w.heard && w.heard[0];
     const char *h = heard ? w.heard : w.status;   // a brain without "heard" only sends the status line
-    if (!h || !h[0]) return SIDE_NONE;
-    *text = h;
-    *n = firstWords(h, (t - (heard ? w.heardSince : s.statusSince)) / WORD_MS + 1);
+    *text = h ? h : "";
+    if (!**text) {
+      *n = 0;
+      return SIDE_CLOUD;
+    }
+    int words = max(1, firstWordsCount(*text));
+    uint32_t perWord = min(WORD_MS, 700 / (uint32_t)words);   // the whole sentence within ~0.7 s
+    *n = firstWords(*text, (t - (heard ? w.heardSince : s.statusSince)) / max(perWord, (uint32_t)1) + 1);
     return SIDE_CLOUD;
   }
   return SIDE_NONE;
@@ -43,7 +50,14 @@ void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char
   if (side == SIDE_CLOUD && aside) {
     int h = max(bubbleHeight(st, text, n, CLOUD_W, 5), 30);
     thoughtCloud(c, CLOUD_X, 112 - h, CLOUD_W, h, hx + 54, 128, st);
-    bubbleText(c, CLOUD_X, 112 - h, CLOUD_W, text, n, 5, st);
+    if (n > 0) {
+      bubbleText(c, CLOUD_X, 112 - h, CLOUD_W, text, n, 5, st);
+    } else {   // still working out what you said: three dots, bouncing
+      for (int i = 0; i < 3; i++) {
+        int dy = (int)(fabsf(sinf(t / 180.0f - i * 0.7f)) * 5);
+        c->fillCircle(CLOUD_X + CLOUD_W / 2 - 16 + i * 16, 112 - h / 2 - dy, 4, st.ink);
+      }
+    }
     return;
   }
   if (p.phase == PH_WORK && w.status && w.status[0]) {   // Fo says what it's doing

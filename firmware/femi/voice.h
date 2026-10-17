@@ -24,8 +24,9 @@ int playerLevel();                                 // loudness right now, to mov
 void playerChime(bool happy);                      // short sound cue: happy rising or gentle falling
 
 // sound cues queue up and play between replies (never over one); stale ones are dropped
-enum Sfx { SFX_READY = 1, SFX_SOFT, SFX_TICK, SFX_WHOOSH, SFX_CLINK, SFX_DING };
+enum Sfx { SFX_READY = 1, SFX_SOFT, SFX_TICK, SFX_WHOOSH, SFX_CLINK, SFX_DING, SFX_POP, SFX_SPARKLE, SFX_JINGLE };
 void playerSfx(Sfx s);
 void playerClip(int clip);                         // a stored spoken clip (clips.h)
 void playerClipOf(int first, int count);           // the next clip of a group, in turn
 bool playerQuiet();                                // nothing playing or waiting to play
+void playerMusic(bool on);                         // soft music while Famyy waits; fades in and out, never over speech

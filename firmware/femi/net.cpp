@@ -130,6 +130,7 @@ static void onCommand(const char *j) {
     jsonStr(j, "text", v.heard, sizeof v.heard);
     v.heardSince = now;
     femiUnlock();
+    playerSfx(SFX_POP);
   } else if (!strcmp(type, "fo")) {   // Fo's visit: {"type":"fo","state":"start","task":"call"}, then "done" with "ok"
     jsonStr(j, "state", s, sizeof s);
     femiLock();

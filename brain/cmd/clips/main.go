@@ -27,9 +27,12 @@ var groups = []struct {
 }{
 	{"ACK", []string{"Okay!", "Hmm, let me see.", "Got it!", "One sec.", "Let me think."}},
 	{"FO_START", []string{"Let me ask Fo!", "I'll get Fo on it."}},
-	{"FO_WAIT", []string{"Fo's still on it.", "Almost there."}},
+	{"FO_WAIT", []string{"Fo's still on it.", "Almost there.", "Fo's making good progress.", "Just a little longer.", "Still working on it.", "Hang tight, nearly done."}},
 	{"HELLO", []string{"Hi! I'm Fammy."}},
 	{"OFFLINE", []string{"Sorry, I can't reach my brain right now."}},
+	{"YES", []string{"On it!", "Great, doing it now."}},
+	{"NO", []string{"Okay, I won't."}},
+	{"STOPPED", []string{"Okay, I'll stop."}},
 }
 
 const rate = 16000

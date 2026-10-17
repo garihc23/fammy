@@ -46,6 +46,17 @@ int wordsUpTo(const char *text, int chars) {
   return chars;
 }
 
+int firstWordsCount(const char *text) {
+  int words = 0;
+  for (const char *p = text; *p;) {
+    while (*p == ' ') p++;
+    if (!*p) break;
+    words++;
+    while (*p && *p != ' ') p++;
+  }
+  return words;
+}
+
 int firstWords(const char *text, int words) {
   int i = 0, len = strlen(text);
   for (int w = 0; w < words && i < len; w++) {

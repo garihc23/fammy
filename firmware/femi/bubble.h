@@ -21,6 +21,7 @@ int textWidth(const GFXfont *font, const char *s, int n);
 // how much of a text to show: whole words, so a word never appears letter by letter
 int wordsUpTo(const char *text, int chars);                        // round a cut forward to the end of its word
 int firstWords(const char *text, int words);                       // characters in the first n words
+int firstWordsCount(const char *text);                             // how many words there are
 
 // the shapes
 void speechBubble(GFXcanvas16 *c, int x, int y, int w, int h, int tailX, int tailY, const BubbleStyle &s);

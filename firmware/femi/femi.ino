@@ -35,6 +35,8 @@ volatile uint32_t moodUntil = 0;
 volatile int timerReq = REQ_NONE;
 volatile Ask asking = ASK_NONE;
 volatile int appReq = APP_NONE;
+volatile bool approvalOpen = false;
+volatile int voiceAnswer = -1;
 
 void setup() {
   Serial.begin(115200);
@@ -67,9 +69,18 @@ static void foCues(const FoPose &p, uint32_t calledAt) {
     playerClipOf(CLIP_FO_START, CLIP_FO_START_N);   // "Let me ask Fo!"
   }
   if (p.phase == PH_SHAKE && p.tp >= 200 && once(2)) playerSfx(SFX_CLINK);
-  if (p.phase == PH_WORK && p.tp >= 20000 && once(4)) playerClip(CLIP_FO_WAIT);       // "Fo's still on it."
-  if (p.phase == PH_WORK && p.tp >= 45000 && once(8)) playerClip(CLIP_FO_WAIT + 1);   // "Almost there."
-  if (p.phase == PH_HANDOFF && p.tp >= 650 && once(16)) playerSfx(SFX_DING);
+  static int reassured = -1;   // a few words every 14 s while Fo works: "Fo's still on it." "Almost there." ...
+  if (p.phase == PH_WORK && p.tp >= 10000) {
+    int step = (p.tp - 10000) / 14000;
+    if (step != reassured) {
+      reassured = step;
+      playerClipOf(CLIP_FO_WAIT, CLIP_FO_WAIT_N);
+    }
+  } else if (p.phase != PH_WORK) {
+    reassured = -1;
+  }
+  if (p.phase == PH_HANDOFF && once(16)) playerSfx(SFX_DING);
+  if (p.phase == PH_HANDOFF && p.tp >= 600 && once(4)) playerSfx(SFX_SPARKLE);   // the result is caught
   if (p.phase == PH_SHRUG && once(32)) playerChime(false);
   if (p.phase == PH_LEAVE && p.tp >= 250 && once(64)) playerSfx(SFX_WHOOSH);
 }
@@ -101,10 +112,14 @@ void loop() {
   static bool greeted = false;
   if (v.linkUp && !greeted) {
     greeted = true;
+    playerSfx(SFX_JINGLE);
     playerClip(CLIP_HELLO);
     wanted = HAPPY;
     moodUntil = now + 2500;
   }
+
+  // soft music while Claude thinks or Fo works (not while listening for a yes or no)
+  playerMusic(v.busy && !v.speaking && !voiceRecording() && !v.approve);
 
   // soft ticks while Claude thinks, so a quiet moment never feels stuck
   static uint32_t nextTick = 0;
@@ -176,9 +191,14 @@ void loop() {
     }
   }
 
-  // an approval: tap = yes, hold 2 s = no, 60 s untouched = no answer
+  // an approval: say "yes" or tap = yes; say "no" or hold 2 s = no; 60 s untouched = no answer
   if (v.approve) {
-    int answer = -1;
+    if (!approvalOpen) {   // listen for a spoken yes or no while the card is up
+      voiceAnswer = -1;
+      approvalOpen = true;
+      speechRearm();
+    }
+    int answer = voiceAnswer;
     for (int i = 0; i < touch.releases; i++) {
       if (touch.releasedMs[i] < EXIT_SHOW_MS) answer = 1;
     }
@@ -189,12 +209,16 @@ void loop() {
         char j[80];
         snprintf(j, sizeof j, "{\"type\":\"approval\",\"id\":\"%s\",\"ok\":%s}", v.approveId, answer ? "true" : "false");
         netSend(F_EVENT, j);
-        playerChime(answer == 1);
+        if (answer) playerClipOf(CLIP_YES, CLIP_YES_N);   // "On it!"
+        else playerClip(CLIP_NO);                          // "Okay, I won't."
       }
+      approvalOpen = false;
+      voiceAnswer = -1;
+      speechPause();   // the request carries on: no wake phrase until it's done
       clearFlag(&FemiView::approve);
       touch.tapped = false;
     } else {
-      faceCardFrame(now, false, "OK to do this?", v.approveText, "tap=yes  hold=no", hold);
+      faceCardFrame(now, false, "OK to do this?", v.approveText, "say yes/tap  hold=no", hold);
       delay(10);
       return;
     }

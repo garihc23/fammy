@@ -7,7 +7,10 @@ extern const Clip CLIPS[];
 
 const int CLIP_ACK = 0, CLIP_ACK_N = 5;
 const int CLIP_FO_START = 5, CLIP_FO_START_N = 2;
-const int CLIP_FO_WAIT = 7, CLIP_FO_WAIT_N = 2;
-const int CLIP_HELLO = 9, CLIP_HELLO_N = 1;
-const int CLIP_OFFLINE = 10, CLIP_OFFLINE_N = 1;
-const int CLIP_COUNT = 11;
+const int CLIP_FO_WAIT = 7, CLIP_FO_WAIT_N = 6;
+const int CLIP_HELLO = 13, CLIP_HELLO_N = 1;
+const int CLIP_OFFLINE = 14, CLIP_OFFLINE_N = 1;
+const int CLIP_YES = 15, CLIP_YES_N = 2;
+const int CLIP_NO = 17, CLIP_NO_N = 1;
+const int CLIP_STOPPED = 18, CLIP_STOPPED_N = 1;
+const int CLIP_COUNT = 19;

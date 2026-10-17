@@ -164,7 +164,7 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   const char *text = nullptr;
   int n = 0;
   Side side = sideWords(t, sc, &text, &n);
-  homeX += ((side != SIDE_NONE ? HOME_X_BESIDE : HOME_X) - homeX) * 0.18f;
+  homeX += ((side != SIDE_NONE ? HOME_X_BESIDE : HOME_X) - homeX) * 0.3f;
   p = foPose(t, foState, foCalledAt, foSince, (int)homeX);
   sc.homeX = (int)homeX;
 
