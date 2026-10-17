@@ -48,6 +48,7 @@ type Options struct {
 	MCPConfigJSON     string   // optional extra MCP servers (--mcp-config), e.g. the device's own tool server
 	ExtraAllowedTools []string // allowed in addition to FoTools
 	Model             string   // optional (--model)
+	Effort            string   // optional (--effort): low, medium, high; low answers fastest
 	WorkDir           string   // cwd for the child; default <tmp>/femi-agent. Keep it stable: --resume finds sessions per cwd.
 	Timeout           time.Duration
 	ClaudePath        string   // claude binary; default "claude" from PATH
@@ -150,6 +151,9 @@ func buildArgs(opts Options, sessionID string) []string {
 	}
 	if opts.Model != "" {
 		args = append(args, "--model="+opts.Model)
+	}
+	if opts.Effort != "" {
+		args = append(args, "--effort="+opts.Effort)
 	}
 	if sessionID != "" {
 		args = append(args, "--resume="+sessionID)

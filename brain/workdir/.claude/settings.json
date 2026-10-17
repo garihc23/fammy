@@ -1,3 +1,4 @@
 {
-  "disableAllHooks": true
+  "disableAllHooks": true,
+  "alwaysThinkingEnabled": false
 }

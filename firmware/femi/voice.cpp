@@ -13,12 +13,14 @@ static volatile int level = 0;
 
 // voice activity detection on 30 ms frames: the request ends after a short silence
 static const int FRAME = 480;                 // samples per frame at 16 kHz
-static const int SPEECH_MIN = 700;            // loudness that always counts as speech
-static const int END_SILENT_FRAMES = 27;      // ~0.8 s of quiet after speaking ends the request
+static const int SPEECH_MIN = 900;            // the quietest loudness that can count as speech (the mic has +12 dB gain)
+static const int SPEECH_RUN = 3;              // 90 ms of voice in a row: a lone click or fan rattle isn't speech
+static const int END_SILENT_FRAMES = 20;      // ~0.6 s of quiet after speaking ends the request
 static const int MAX_FRAMES = 400;            // 12 s at most
 static const int GIVE_UP_FRAMES = 170;        // 5 s without speech: probably a false wake, drop it
+static const int CHIME_SKIP = 16000 * 3 / 10;   // the first 0.3 s holds Famyy's own "listening" chime: never send or judge it
 static int64_t sumSq;
-static int frameN, frames, speechFrames, silentFrames;
+static int skip, frameN, frames, speechFrames, speechRun, silentFrames;
 static float noise;
 static bool heard;
 
@@ -35,8 +37,9 @@ static void setBusy(bool b) {
 bool voiceStart(const char *trigger) {
   if (recording || !netUp()) return false;
   sumSq = 0;
-  frameN = frames = speechFrames = silentFrames = 0;
-  noise = 400;
+  frameN = frames = speechFrames = speechRun = silentFrames = 0;
+  skip = CHIME_SKIP;
+  noise = 500;
   heard = false;
   char j[64];
   snprintf(j, sizeof j, "{\"rate\":16000,\"trigger\":\"%s\"}", trigger);
@@ -59,6 +62,13 @@ static void finish(const char *reason) {
 
 void voiceFeed(const int16_t *s, size_t n) {
   if (!recording) return;
+  if (skip > 0) {
+    size_t d = min(n, (size_t)skip);
+    skip -= d;
+    s += d;
+    n -= d;
+    if (n == 0) return;
+  }
   mic.write(s, n * 2);
   for (size_t i = 0; i < n && recording; i++) {
     sumSq += (int32_t)s[i] * s[i];
@@ -68,14 +78,17 @@ void voiceFeed(const int16_t *s, size_t n) {
     frameN = 0;
     frames++;
     level = rms;
-    bool speech = rms > max(SPEECH_MIN, (int)(noise * 2.5f));
-    if (speech) {
-      speechFrames++;
+    if (rms > max(SPEECH_MIN, (int)(noise * 2))) {
+      speechRun++;
+    } else {
+      speechRun = 0;
+      noise += (rms - noise) * (rms < noise ? 0.1f : 0.03f);   // the room's typical noise, not its quietest moment
+    }
+    if (speechRun >= SPEECH_RUN) {
       silentFrames = 0;
-      if (speechFrames >= 6) heard = true;   // ~0.2 s of voice, not just a click
+      if (++speechFrames >= 4) heard = true;   // ~0.2 s of voice: someone is talking
     } else {
       silentFrames++;
-      noise = rms < noise ? rms : noise + (rms - noise) * 0.02f;   // follow the room's background noise
     }
     if (heard && silentFrames >= END_SILENT_FRAMES) finish("silence");
     else if (frames >= MAX_FRAMES) finish("max");

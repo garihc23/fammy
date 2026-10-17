@@ -5,11 +5,14 @@ package femi
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -88,6 +91,7 @@ type Config struct {
 	Reminders *remind.Scheduler
 	Profile   *Profile
 	FamilyDir string
+	RecordDir string                           // optional: the newest requests are saved here as WAV files
 	Logf      func(format string, args ...any) // default log.Printf
 
 	TurnTimeout     time.Duration // default 5 min
@@ -236,7 +240,16 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 			b.logf("device: AUDIO_END without AUDIO_START, ignored")
 			return
 		}
-		b.logf("device: AUDIO_END reason=%s, %.1f s of audio", p.Reason, float64(len(pcm))/(2*SampleRate))
+		q, mid, loud := loudness(pcm)
+		b.logf("device: AUDIO_END reason=%s, %.1f s of audio, loudness quiet %d / middle %d / loud %d",
+			p.Reason, float64(len(pcm))/(2*SampleRate), q, mid, loud)
+		if dir := b.cfg.RecordDir; dir != "" {
+			go func() {
+				if err := saveRecording(dir, pcm, p.Reason); err != nil {
+					b.logf("record: %v", err)
+				}
+			}()
+		}
 		if p.Reason == "cancel" {
 			go b.cfg.Device.State("idle", "")
 			return
@@ -341,7 +354,12 @@ func (b *Brain) textRequest(text string) {
 }
 
 // tooShort: fewer than two letters or digits.
+// soundTags are the transcriber's notes for sounds that aren't words: "*ding*",
+// "[music]", "(coughs)". Whisper writes "foreign" for speech it can't read.
+var soundTags = regexp.MustCompile(`\*[^*]*\*|\[[^\]]*\]|\([^)]*\)|(?i)^\s*foreign[.!]?\s*$`)
+
 func tooShort(s string) bool {
+	s = soundTags.ReplaceAllString(s, "")
 	n := 0
 	for _, r := range s {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -687,4 +705,26 @@ func (b *Brain) RequestApproval(ctx context.Context, summary string) string {
 // written "Famyy" but should sound like "Fammy", short for family.
 func spoken(text string) string {
 	return strings.NewReplacer("Famyy", "Fammy", "FAMYY", "Fammy", "famyy", "fammy").Replace(text)
+}
+
+// loudness returns the 10th, 50th and 90th percentile RMS of the recording's
+// 30 ms frames: the same frames and scale as the device's silence detector,
+// so "quiet" is the room and "loud" is the speaker.
+func loudness(pcm []byte) (quiet, middle, loud int) {
+	const frame = 480 * 2 // bytes per 30 ms at 16 kHz
+	var rms []int
+	for i := 0; i+frame <= len(pcm); i += frame {
+		var sum float64
+		for j := i; j < i+frame; j += 2 {
+			v := float64(int16(binary.LittleEndian.Uint16(pcm[j:])))
+			sum += v * v
+		}
+		rms = append(rms, int(math.Sqrt(sum/(frame/2))))
+	}
+	if len(rms) == 0 {
+		return 0, 0, 0
+	}
+	sort.Ints(rms)
+	at := func(p int) int { return rms[(len(rms)-1)*p/100] }
+	return at(10), at(50), at(90)
 }

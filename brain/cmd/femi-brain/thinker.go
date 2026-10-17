@@ -40,6 +40,7 @@ func newThinkers(system string, cfg config) (femi.Thinker, femi.Thinker) {
 		MCPConfigJSON:     mcpConfig(cfg.toolsPort),
 		ExtraAllowedTools: allowed,
 		Model:             cfg.model,
+		Effort:            cfg.effort,
 		WorkDir:           workDir,
 		Timeout:           turnBudget,
 	}

@@ -566,3 +566,20 @@ func TestDeviceCommandTools(t *testing.T) {
 		t.Fatalf("ToolNames = %v", ToolNames())
 	}
 }
+
+func TestTooShortIgnoresSoundTags(t *testing.T) {
+	for s, want := range map[string]bool{
+		"*ding*":            true,
+		"[music]":           true,
+		"(coughs) ":         true,
+		"foreign":           true,
+		"Foreign.":          true,
+		"*ding* what time?": false,
+		"foreign languages": false,
+		"hi":                false,
+	} {
+		if got := tooShort(s); got != want {
+			t.Errorf("tooShort(%q) = %v, want %v", s, got, want)
+		}
+	}
+}

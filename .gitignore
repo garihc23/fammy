@@ -11,3 +11,4 @@ build/
 *.elf
 brain/femi-brain
 qa/voice/
+qa/recordings/

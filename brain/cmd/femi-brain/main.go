@@ -13,7 +13,8 @@
 //	FEMI_TOOLS_PORT    MCP tools port on 127.0.0.1 (8788)
 //	FAMILY_DIR         profile.json + photos/ (/home/leog/femi/family)
 //	FEMI_ACK_MINUTES   minutes before an unacknowledged reminder escalates (10)
-//	FEMI_MODEL         Claude model for turns (sonnet)
+//	FEMI_MODEL         Claude model for turns (claude-haiku-5-5: the quickest to answer)
+//	FEMI_EFFORT        how hard Claude thinks before answering: low, medium, high (low)
 //	FEMI_EMOTION       how Famyy's voice sounds: content, calm, ... (content); "none" lets Cartesia choose
 package main
 
@@ -55,6 +56,7 @@ type config struct {
 	familyDir   string
 	ackWindow   time.Duration
 	model       string
+	effort      string
 	emotion     string
 	promptPath  string
 }
@@ -112,6 +114,7 @@ func main() {
 		Reminders:   sched,
 		Profile:     profile,
 		FamilyDir:   cfg.familyDir,
+		RecordDir:   filepath.Join(filepath.Dir(brainDir), "qa", "recordings"),
 		TurnTimeout: turnBudget + 30*time.Second,
 	})
 	dev.Handler = brain
@@ -188,7 +191,8 @@ func loadConfig() (config, error) {
 	cfg := config{
 		cartesiaKey: get("CARTESIA_API_KEY", ""),
 		familyDir:   get("FAMILY_DIR", "/home/leog/femi/family"),
-		model:       get("FEMI_MODEL", "sonnet"),
+		model:       get("FEMI_MODEL", "claude-haiku-5-5"),
+		effort:      get("FEMI_EFFORT", "low"),
 		emotion:     get("FEMI_EMOTION", cartesia.DefaultEmotion),
 		promptPath:  get("FEMI_PROMPT", filepath.Join(brainDir, "prompt.md")),
 	}
@@ -204,7 +208,7 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("FEMI_ACK_MINUTES must be a positive number of minutes")
 	}
 	cfg.ackWindow = time.Duration(ack * float64(time.Minute))
-	log.Printf("config: link :%d, tools 127.0.0.1:%d, family %s, ack %s, model %s", cfg.port, cfg.toolsPort, cfg.familyDir, cfg.ackWindow, cfg.model)
+	log.Printf("config: link :%d, tools 127.0.0.1:%d, family %s, ack %s, model %s at %s effort", cfg.port, cfg.toolsPort, cfg.familyDir, cfg.ackWindow, cfg.model, cfg.effort)
 	return cfg, nil
 }
 

@@ -51,9 +51,18 @@ static const sr_cmd_t commands[] = {
   {CMD_MORSE,     "learn morse"},
   {CMD_MORSE,     "teach me morse"},
   // the wake phrase, when HEY_FAMYY is on: the command recogniser listens for it all the time.
-  // Spelled the way it sounds ("Fammy", like family): the recogniser works the sounds out from the spelling.
+  // Spelled the way it sounds ("Fammy", like family): the recogniser works the sounds out from the spelling,
+  // so each way people actually say the name gets its own spelling.
   {CMD_HEY,       "hey fammy"},
   {CMD_HEY,       "hi fammy"},
+  {CMD_HEY,       "hey famy"},
+  {CMD_HEY,       "hi famy"},
+  {CMD_HEY,       "hey faimy"},
+  {CMD_HEY,       "hi faimy"},
+  {CMD_HEY,       "hey femy"},
+  {CMD_HEY,       "hi femy"},
+  {CMD_HEY,       "hey femmy"},
+  {CMD_HEY,       "hi femmy"},
   // numbers: reusable answers to any "how much / how long" question
   {CMD_NUM_FIRST + 0, "one"},
   {CMD_NUM_FIRST + 1, "two"},

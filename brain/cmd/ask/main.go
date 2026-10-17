@@ -23,6 +23,7 @@ const defaultSystemPrompt = `You are Femi, a friendly voice assistant for a fami
 
 func main() {
 	model := flag.String("model", "", "model alias or name (default: Claude Code's default)")
+	effort := flag.String("effort", "", "low, medium or high (default: Claude Code's default)")
 	resume := flag.String("resume", "", "session id to continue")
 	workDir := flag.String("workdir", "", "cwd for claude (default <tmp>/femi-agent)")
 	timeout := flag.Duration("timeout", agent.DefaultTimeout, "whole-turn timeout")
@@ -46,7 +47,7 @@ func main() {
 	defer stop()
 
 	start := time.Now()
-	opts := agent.Options{SystemPrompt: *system, Model: *model, WorkDir: *workDir, Timeout: *timeout}
+	opts := agent.Options{SystemPrompt: *system, Model: *model, Effort: *effort, WorkDir: *workDir, Timeout: *timeout}
 	res, err := agent.Run(ctx, opts, *resume, text, func(e agent.Event) {
 		tool := e.Tool
 		if e.Status != "" {
