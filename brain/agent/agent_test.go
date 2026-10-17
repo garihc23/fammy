@@ -239,6 +239,9 @@ func TestBuildArgs(t *testing.T) {
 	if !slices.Equal(args, want) {
 		t.Errorf("args:\n got %q\nwant %q", args, want)
 	}
+	if a := buildArgs(Options{NoPersist: true}, "sess-1"); !slices.Contains(a, "--no-session-persistence") || slices.ContainsFunc(a, func(s string) bool { return strings.HasPrefix(s, "--resume") }) {
+		t.Errorf("no persistence: want --no-session-persistence and no --resume (nothing to resume): %q", a)
+	}
 	if a := buildArgs(Options{}, ""); slices.ContainsFunc(a, func(s string) bool { return strings.HasPrefix(s, "--resume") }) {
 		t.Errorf("new session must not pass --resume: %q", a)
 	}

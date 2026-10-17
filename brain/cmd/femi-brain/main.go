@@ -15,6 +15,7 @@
 //	FEMI_ACK_MINUTES   minutes before an unacknowledged reminder escalates (10)
 //	FEMI_MODEL         Claude model for turns (claude-haiku-5-5: the quickest to answer)
 //	FEMI_EFFORT        how hard Claude thinks before answering: low, medium, high (low)
+//	FEMI_CAMERA        webcam for look_at_camera (/dev/video0); "none" turns it off
 //	FEMI_AUTH          login (Claude Code's login; Fo through claude.ai) or key (ANTHROPIC_API_KEY, ~2 s faster
 //	                   per turn; claude.ai connectors are off, so Fo must be signed in directly: /mcp > fo)
 //	ANTHROPIC_API_KEY  with FEMI_AUTH=key
@@ -39,6 +40,7 @@ import (
 	"syscall"
 	"time"
 
+	"femi/brain/camera"
 	"femi/brain/cartesia"
 	"femi/brain/femi"
 	"femi/brain/link"
@@ -61,6 +63,7 @@ type config struct {
 	ackWindow   time.Duration
 	model       string
 	effort      string
+	camera      string
 	auth        string
 	apiKey      string
 	workspace   string
@@ -122,6 +125,7 @@ func main() {
 		Profile:     profile,
 		FamilyDir:   cfg.familyDir,
 		RecordDir:   filepath.Join(filepath.Dir(brainDir), "qa", "recordings"),
+		Camera:      cfg.webcam(),
 		FoVoice:     cartesia.VoiceJacqueline,
 		CallVoice:   cartesia.VoiceDev,
 		TurnTimeout: turnBudget + 30*time.Second,
@@ -205,6 +209,7 @@ func loadConfig() (config, error) {
 		familyDir:   get("FAMILY_DIR", "/home/leog/femi/family"),
 		model:       get("FEMI_MODEL", "claude-haiku-5-5"),
 		effort:      get("FEMI_EFFORT", "low"),
+		camera:      get("FEMI_CAMERA", "/dev/video0"),
 		auth:        get("FEMI_AUTH", "login"),
 		apiKey:      get("ANTHROPIC_API_KEY", ""),
 		workspace:   get("ANTHROPIC_WORKSPACE_ID", ""),
@@ -296,4 +301,18 @@ func (c config) claudeEnv() []string {
 		env = append(env, "ANTHROPIC_CUSTOM_HEADERS=anthropic-workspace-id: "+c.workspace)
 	}
 	return env
+}
+
+// webcam is the camera for look_at_camera, or nil when there is none.
+func (c config) webcam() femi.Camera {
+	if c.camera == "none" {
+		log.Printf("camera: off (FEMI_CAMERA=none)")
+		return nil
+	}
+	if _, err := os.Stat(c.camera); err != nil {
+		log.Printf("camera: %s not found, look_at_camera is off", c.camera)
+		return nil
+	}
+	log.Printf("camera: %s (photos are never saved)", c.camera)
+	return camera.Webcam{Device: c.camera}
 }

@@ -31,6 +31,12 @@ func testServer(t *testing.T) *httptest.Server {
 			},
 		},
 		{
+			Name: "snap",
+			HandleImage: func(context.Context, json.RawMessage) (string, []byte, string, error) {
+				return "a photo", []byte{0xFF, 0xD8, 0xFF}, "image/jpeg", nil
+			},
+		},
+		{
 			Name:   "fail",
 			Handle: func(context.Context, json.RawMessage) (string, error) { return "", errors.New("nope") },
 		},
@@ -111,7 +117,7 @@ func TestToolsListAndCall(t *testing.T) {
 		} `json:"tools"`
 	}
 	json.Unmarshal(decode(t, body).Result, &list)
-	if len(list.Tools) != 2 || list.Tools[0].Name != "echo" || list.Tools[0].InputSchema["type"] != "object" || list.Tools[1].InputSchema["type"] != "object" {
+	if len(list.Tools) != 3 || list.Tools[0].Name != "echo" || list.Tools[0].InputSchema["type"] != "object" || list.Tools[1].InputSchema["type"] != "object" {
 		t.Fatalf("tools/list: %s", body)
 	}
 
@@ -174,5 +180,14 @@ func TestBatch(t *testing.T) {
 	var rs []rpcResp
 	if err := json.Unmarshal([]byte(body), &rs); err != nil || len(rs) != 1 || string(rs[0].ID) != "7" {
 		t.Fatalf("batch: %s", body)
+	}
+}
+
+func TestToolReturningAnImage(t *testing.T) {
+	ts := testServer(t)
+	_, body, _ := post(t, ts.URL, `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"snap"}}`)
+	want := `{"content":[{"text":"a photo","type":"text"},{"data":"/9j/","mimeType":"image/jpeg","type":"image"}],"isError":false}`
+	if r := decode(t, body); string(r.Result) != want {
+		t.Errorf("result %s\nwant   %s", r.Result, want)
 	}
 }

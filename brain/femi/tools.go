@@ -259,6 +259,16 @@ func (b *Brain) Tools() []mcp.Tool {
 			},
 		},
 		{
+			Name: "look_at_camera",
+			Description: "Take one photo with Famyy's camera and look at it. Only when someone asks how they look, what they're " +
+				"wearing, or to look at something they're showing or holding; never on your own and never to watch someone. " +
+				"A small copy shows on Famyy's screen; the photo isn't saved. Returns the photo for you to see.",
+			InputSchema: object(map[string]any{}),
+			HandleImage: func(ctx context.Context, raw json.RawMessage) (string, []byte, string, error) {
+				return b.LookAtCamera(ctx)
+			},
+		},
+		{
 			Name: "show_list",
 			Description: "Show a short list on Famyy's screen until it is tapped: up to 8 rows of about 24 characters, " +
 				"e.g. recent calls (\"Sun 1:44  The Lalit\"), reminders or options to choose from. Say a one-line summary; " +

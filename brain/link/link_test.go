@@ -193,9 +193,10 @@ func TestImageAndControlFrames(t *testing.T) {
 		s.State("thinking", "Asking Fo…")
 		s.Image("Demo", 4, 3, make([]byte, 4*3*2))
 		s.Command(map[string]any{"type": "timer", "minutes": 5})
+		s.Snapshot("", 2, 2, make([]byte, 8))
 	}()
 	br := bufio.NewReader(nc)
-	expect := []byte{TypeState, TypeCommand, TypeImageChunk, TypeCommand}
+	expect := []byte{TypeState, TypeCommand, TypeImageChunk, TypeCommand, TypeCommand, TypeImageChunk}
 	for i, want := range expect {
 		f, err := ReadFrame(br)
 		if err != nil {
@@ -209,6 +210,9 @@ func TestImageAndControlFrames(t *testing.T) {
 		}
 		if i == 1 && string(f.Payload) != `{"type":"image","w":4,"h":3,"bytes":24,"caption":"Demo"}` {
 			t.Fatalf("image payload %s", f.Payload)
+		}
+		if i == 4 && string(f.Payload) != `{"type":"image","kind":"snap","w":2,"h":2,"bytes":8,"caption":""}` {
+			t.Fatalf("snapshot payload %s", f.Payload)
 		}
 	}
 

@@ -6,6 +6,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +26,8 @@ type Tool struct {
 	Description string
 	InputSchema map[string]any // JSON Schema of the arguments object
 	Handle      func(ctx context.Context, args json.RawMessage) (string, error)
+	// HandleImage, used instead of Handle, also returns a picture for Claude to see (mime e.g. "image/jpeg").
+	HandleImage func(ctx context.Context, args json.RawMessage) (text string, img []byte, mime string, err error)
 }
 
 // Server is an http.Handler serving the tools. Mount it on POST /mcp.
@@ -238,28 +241,35 @@ func (s *Server) dispatch(ctx context.Context, m message) (any, *rpcError) {
 		if len(args) == 0 || string(args) == "null" {
 			args = json.RawMessage("{}")
 		}
-		text, err := s.call(ctx, t, args)
+		text, img, mime, err := s.call(ctx, t, args)
 		isErr := err != nil
 		if isErr {
-			text = err.Error()
+			text, img = err.Error(), nil
 		}
-		s.logf("mcp: %s %s -> %q (error=%v)", t.Name, args, text, isErr)
-		return map[string]any{
-			"content": []map[string]any{{"type": "text", "text": text}},
-			"isError": isErr,
-		}, nil
+		content := []map[string]any{{"type": "text", "text": text}}
+		if len(img) > 0 {
+			content = append(content, map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(img), "mimeType": mime})
+			s.logf("mcp: %s %s -> %q + %s, %d KB (error=%v)", t.Name, args, text, mime, len(img)/1024, isErr)
+		} else {
+			s.logf("mcp: %s %s -> %q (error=%v)", t.Name, args, text, isErr)
+		}
+		return map[string]any{"content": content, "isError": isErr}, nil
 	}
 	return nil, &rpcError{Code: codeMethodNotFound, Message: "method not found: " + m.Method}
 }
 
-func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage) (text string, err error) {
+func (s *Server) call(ctx context.Context, t Tool, args json.RawMessage) (text string, img []byte, mime string, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			err = fmt.Errorf("internal error in %s: %v", t.Name, p)
 		}
 	}()
-	if t.Handle == nil {
-		return "", fmt.Errorf("%s is not implemented", t.Name)
+	switch {
+	case t.HandleImage != nil:
+		return t.HandleImage(ctx, args)
+	case t.Handle != nil:
+		text, err = t.Handle(ctx, args)
+		return text, nil, "", err
 	}
-	return t.Handle(ctx, args)
+	return "", nil, "", fmt.Errorf("%s is not implemented", t.Name)
 }

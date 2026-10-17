@@ -50,6 +50,12 @@ type Device interface {
 	Say(ctx context.Context, id, text string, pcm []byte, listen bool) error // listen: open the mic again afterwards
 	Command(v any) error
 	Image(caption string, w, h int, rgb565 []byte) error
+	Snapshot(caption string, w, h int, rgb565 []byte) error // a camera photo, shown as a small polaroid
+}
+
+// Camera takes one photo, as JPEG, kept in memory only (camera.Webcam implements it).
+type Camera interface {
+	Snap(ctx context.Context) ([]byte, error)
 }
 
 // Event is streamed by a Thinker while a turn runs (mirrors agent.Event).
@@ -97,6 +103,7 @@ type Config struct {
 	Reminders *remind.Scheduler
 	Profile   *Profile
 	FamilyDir string
+	Camera    Camera                           // optional: look_at_camera
 	FoVoice   string                           // replay_call: voice for Fo's side of a call
 	CallVoice string                           // replay_call: voice for the person Fo called
 	RecordDir string                           // optional: the newest requests are saved here as WAV files

@@ -49,6 +49,7 @@ type Options struct {
 	ExtraAllowedTools []string // allowed in addition to FoTools
 	Model             string   // optional (--model)
 	Effort            string   // optional (--effort): low, medium, high; low answers fastest
+	NoPersist         bool     // --no-session-persistence: nothing (camera photos included) is written to disk; a conversation can't be resumed
 	Env               []string // extra KEY=VALUE for the child, e.g. ANTHROPIC_API_KEY to run on an API key instead of the login
 	WorkDir           string   // cwd for the child; default <tmp>/femi-agent. Keep it stable: --resume finds sessions per cwd.
 	Timeout           time.Duration
@@ -156,7 +157,9 @@ func buildArgs(opts Options, sessionID string) []string {
 	if opts.Effort != "" {
 		args = append(args, "--effort="+opts.Effort)
 	}
-	if sessionID != "" {
+	if opts.NoPersist {
+		args = append(args, "--no-session-persistence")
+	} else if sessionID != "" {
 		args = append(args, "--resume="+sessionID)
 	}
 	return append(args, opts.ExtraArgs...)

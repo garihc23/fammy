@@ -281,13 +281,23 @@ func (s *Server) Say(ctx context.Context, id, text string, pcm []byte, listen bo
 // Image sends the image COMMAND followed by IMAGE_CHUNK frames carrying
 // rgb565 (little-endian, row-major, w*h*2 bytes).
 func (s *Server) Image(caption string, w, h int, rgb565 []byte) error {
+	return s.image("", caption, w, h, rgb565)
+}
+
+// Snapshot sends a camera photo for the device's small polaroid ("kind":"snap").
+func (s *Server) Snapshot(caption string, w, h int, rgb565 []byte) error {
+	return s.image("snap", caption, w, h, rgb565)
+}
+
+func (s *Server) image(kind, caption string, w, h int, rgb565 []byte) error {
 	cmd, err := json.Marshal(struct {
 		Type    string `json:"type"`
+		Kind    string `json:"kind,omitempty"`
 		W       int    `json:"w"`
 		H       int    `json:"h"`
 		Bytes   int    `json:"bytes"`
 		Caption string `json:"caption"`
-	}{"image", w, h, len(rgb565), caption})
+	}{"image", kind, w, h, len(rgb565), caption})
 	if err != nil {
 		return err
 	}

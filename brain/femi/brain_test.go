@@ -1,12 +1,14 @@
 package femi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"femi/brain/link"
+	"femi/brain/mcp"
 	"femi/brain/remind"
 )
 
@@ -70,6 +73,9 @@ func (d *fakeDevice) Command(v any) error {
 	var m map[string]any
 	json.Unmarshal(raw, &m)
 	return d.add(rec{Kind: "command", Command: m})
+}
+func (d *fakeDevice) Snapshot(caption string, w, h int, rgb565 []byte) error {
+	return d.add(rec{Kind: "snapshot", Text: caption, Bytes: len(rgb565)})
 }
 func (d *fakeDevice) Image(caption string, w, h int, rgb565 []byte) error {
 	return d.add(rec{Kind: "image", Text: caption, Bytes: len(rgb565)})
@@ -563,7 +569,7 @@ func TestDeviceCommandTools(t *testing.T) {
 	if _, err := tools["set_theme"](context.Background(), json.RawMessage(`{"name":"normal"}`)); err == nil {
 		t.Fatal("no device: expected error")
 	}
-	if len(ToolNames()) != 12 {
+	if len(ToolNames()) != 13 {
 		t.Fatalf("ToolNames = %v", ToolNames())
 	}
 }
@@ -826,5 +832,33 @@ func TestAcknowledgeReminderByVoice(t *testing.T) {
 	sched.Tick(time.Date(2026, 10, 18, 9, 45, 0, 0, time.Local)) // past the ack window: no text to Rahul
 	if _, err := b.AcknowledgeReminder(med.ID); err == nil {
 		t.Error("acknowledged twice")
+	}
+}
+
+type fakeCamera struct{ jpg []byte }
+
+func (c fakeCamera) Snap(ctx context.Context) ([]byte, error) { return c.jpg, nil }
+
+func TestLookAtCamera(t *testing.T) {
+	var buf bytes.Buffer
+	jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 960, 720)), nil)
+	b, dev := newBrain(t, replyThinker("ok"), func(c *Config) { c.Camera = fakeCamera{buf.Bytes()} })
+	var look mcp.Tool
+	for _, tl := range b.Tools() {
+		if tl.Name == "look_at_camera" {
+			look = tl
+		}
+	}
+	text, img, mime, err := look.HandleImage(context.Background(), json.RawMessage(`{}`))
+	if err != nil || mime != "image/jpeg" || !bytes.Equal(img, buf.Bytes()) || !strings.Contains(text, "not saved") {
+		t.Fatalf("look_at_camera = %q, %d bytes, %q, %v", text, len(img), mime, err)
+	}
+	if r := dev.waitFor(t, "polaroid", func(r rec) bool { return r.Kind == "snapshot" }); r.Bytes != snapW*snapH*2 {
+		t.Errorf("polaroid has %d bytes, want %d", r.Bytes, snapW*snapH*2)
+	}
+
+	b2, _ := newBrain(t, replyThinker("ok"), nil) // no camera
+	if _, _, _, err := b2.LookAtCamera(context.Background()); err == nil {
+		t.Error("no camera: expected an error")
 	}
 }

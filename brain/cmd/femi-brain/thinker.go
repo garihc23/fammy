@@ -45,6 +45,7 @@ func newThinkers(system string, cfg config) (*warmThinker, femi.Thinker) {
 		Model:             cfg.model,
 		Effort:            cfg.effort,
 		Env:               cfg.claudeEnv(),
+		NoPersist:         true, // a family's conversations and camera photos stay off the disk
 		WorkDir:           workDir,
 		Timeout:           turnBudget,
 	}
@@ -110,7 +111,7 @@ func (t *warmThinker) session(sessionID string) (*agent.Session, error) {
 		go t.cur.Close()
 		t.cur = nil
 	}
-	if sessionID != "" { // a conversation no running process holds (its process died): pick it back up
+	if sessionID != "" && !t.opts.NoPersist { // a conversation no running process holds (its process died): pick it back up
 		s, err := agent.StartSession(t.opts, sessionID)
 		t.cur = s
 		return s, err
