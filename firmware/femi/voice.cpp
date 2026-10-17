@@ -16,8 +16,9 @@ static volatile int level = 0;
 static const int FRAME = 480;                 // samples per frame at 16 kHz
 static const int SPEECH_MIN = 900;            // the quietest loudness that can count as speech (the mic has +12 dB gain)
 static const int SPEECH_RUN = 3;              // 90 ms of voice in a row: a lone click or fan rattle isn't speech
-static const int END_SILENT_FRAMES = 20;      // ~0.6 s of quiet after speaking ends the request
-static const int MAX_FRAMES = 400;            // 12 s at most
+static const int END_SILENT_MIN = 20;         // ~0.6 s of quiet ends a short request...
+static const int END_SILENT_MAX = 44;         // ...and up to ~1.3 s a long one, where people pause to think
+static const int MAX_FRAMES = 1000;           // 30 s at most
 static const int GIVE_UP_FRAMES = 170;        // 5 s without speech: probably a false wake, drop it
 static const int CHIME_SKIP = 16000 * 3 / 10;   // the first 0.3 s holds Famyy's own "listening" chime: never send or judge it
 static int64_t sumSq;
@@ -106,7 +107,9 @@ void voiceFeed(const int16_t *s, size_t n) {
     } else {
       silentFrames++;
     }
-    if (heard && silentFrames >= END_SILENT_FRAMES) finish("silence");
+    // the longer someone has been talking, the longer a pause they get before the request ends
+    int endAfter = END_SILENT_MIN + constrain((speechFrames - 60) * (END_SILENT_MAX - END_SILENT_MIN) / 140, 0, END_SILENT_MAX - END_SILENT_MIN);
+    if (heard && silentFrames >= endAfter) finish("silence");
     else if (frames >= MAX_FRAMES) finish("max");
     else if (!heard && frames >= GIVE_UP_FRAMES) finish("cancel");
   }
@@ -237,7 +240,14 @@ static void playSfx(int s) {
     case SFX_TICK:   tone(1760, 14, 900, 0); quiet(45); tone(2350, 12, 700, 0); break;   // tk-tk: still thinking
     case SFX_WHOOSH: whoosh(320, 9000); break;                                    // Fo comes or goes
     case SFX_CLINK:  tone(1568, 260, 3800, 70, 0.5f); break;                      // the handshake
-    case SFX_DING:   tone(1047, 90, 4200, 120, 0.4f); tone(1568, 480, 4200, 160, 0.4f); break;   // done!
+    case SFX_DING: {                                                              // done! (in one of three keys)
+      static const float keys[3][2] = {{1047, 1568}, {1175, 1760}, {988, 1480}};
+      static int k = 0;
+      k = (k + 1) % 3;
+      tone(keys[k][0], 90, 4200, 120, 0.4f);
+      tone(keys[k][1], 480, 4200, 160, 0.4f);
+      break;
+    }
     case SFX_POP:    sweep(320, 980, 70, 2600); break;                            // words appear in a bubble
     case SFX_SPARKLE:                                                             // caught it!
       for (float hz : {1568.0f, 1976.0f, 2349.0f, 3136.0f}) tone(hz, 70, 2200, 60, 0.3f);
@@ -247,6 +257,30 @@ static void playSfx(int s) {
       tone(784, 120, 3600, 140, 0.3f); tone(988, 120, 3600, 140, 0.3f); tone(1175, 120, 3600, 140, 0.3f);
       tone(1568, 420, 3800, 220, 0.4f);
       break;
+    case SFX_CHIRP:                                                               // a happy little trill
+      tone(1319, 55, 3200, 50, 0.2f); tone(1568, 55, 3200, 50, 0.2f); tone(2093, 120, 3400, 80, 0.3f);
+      break;
+    case SFX_QUESTION: tone(784, 110, 4000, 0); tone(1047, 220, 4000, 110, 0.3f); break;   // "hmm?": a yes or no, please
+    case SFX_BELL:                                                                // ding-dong: a reminder
+      tone(1568, 320, 4200, 130, 0.5f); quiet(60); tone(1245, 560, 4200, 200, 0.5f);
+      break;
+    case SFX_SHUTTER: whoosh(50, 9000); tone(2637, 160, 2600, 60, 0.3f); break;   // a photo
+    case SFX_FLIP:   whoosh(70, 7000); quiet(40); whoosh(70, 5500); break;        // a page turns: a list
+    case SFX_BOOP:   sweep(620, 410, 90, 2600); break;                            // a little remark pops up
+    case SFX_YAWN:   sweep(280, 720, 450, 2600); sweep(720, 380, 350, 2200); break;   // waking up
+    case SFX_LULLABY:                                                             // drifting off
+      tone(784, 260, 2600, 160); tone(659, 260, 2400, 160); tone(523, 620, 2200, 260);
+      break;
+    case SFX_ALARM:                                                               // time's up, cheerfully
+      for (float hz : {1047.0f, 1319.0f, 1568.0f, 1319.0f}) tone(hz, 110, 4400, 70, 0.3f);
+      tone(2093, 260, 4400, 120, 0.3f);
+      break;
+    case SFX_ARCADE: sweep(400, 1600, 160, 3200); tone(1568, 80, 3600, 0); tone(2093, 170, 3800, 90, 0.2f); break;   // game on
+    case SFX_GLITCH:                                                              // hacker mode: the signal breaks up
+      for (int i = 0; i < 7; i++) tone(200 + esp_random() % 1800, 28, 2800, 0);
+      whoosh(80, 6000);
+      break;
+    case SFX_TAP:    tone(2600, 12, 1800, 0); break;                              // a tiny tick under your finger
   }
 }
 
@@ -295,7 +329,7 @@ static void musicChunk(int16_t *out, int n) {
     melPh += melHz / 16000;
     melEnv *= 0.99975f;                                        // a music-box note rings out over ~0.25 s
     float mel = (sine(melPh) + 0.3f * sine(2 * melPh)) * melEnv;
-    out[i] = (int16_t)((pad * 420 * swell + mel * 1500) * musicGain * SPEAKER_VOLUME);
+    out[i] = (int16_t)((pad * 620 * swell + mel * 2400) * musicGain * SPEAKER_VOLUME);
   }
 }
 

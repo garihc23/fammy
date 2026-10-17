@@ -88,3 +88,48 @@ void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char
   topBubble(c, bx, bw, tail, st);
   bubbleText(c, bx, 8, bw, s.say, len, 1, st);
 }
+
+// ---------- the name tag and the clock ----------
+
+void drawNameTag(GFXcanvas16 *c, uint32_t t, Presence p, bool dance, const TagStyle &s) {
+  const char *name = "Famyy";
+  c->fillScreen(s.bg);
+  int w = textWidth(s.font, name, 5) + 30, x = (c->width() - w) / 2;
+  c->fillRoundRect(x, 1, w, 20, 10, s.pill);
+
+  // the light: steady green when it's free, pulsing while it listens or works, grey when offline
+  bool pulse = p == PRES_LISTENING || p == PRES_THINKING || p == PRES_TALKING;
+  uint16_t col = p == PRES_OFFLINE ? s.off : p == PRES_LISTENING ? s.listening : p == PRES_THINKING ? s.thinking : s.idle;
+  int r = pulse ? 3 + (int)(fabsf(sinf(t / 220.0f)) * 2.5f) : 4;
+  c->fillCircle(x + 11, 11, r, col);
+
+  c->setFont(s.font);
+  c->setTextSize(1);
+  int cx = x + 20;
+  for (int i = 0; i < 5; i++) {
+    int dy = dance ? (int)(sinf(t / 110.0f + i * 0.9f) * 2) : 0;
+    c->setTextColor(s.letters[i]);
+    c->setCursor(cx, 16 + dy);
+    c->print(name[i]);
+    cx += textWidth(s.font, name + i, 1);
+  }
+  c->setFont(nullptr);
+}
+
+void drawClock(GFXcanvas16 *c, int x, int y, const char *time, const char *ampm, const char *date,
+               uint16_t ink, uint16_t dim, const GFXfont *big, const GFXfont *small) {
+  if (!time || !time[0]) return;   // the time isn't known yet
+  c->setTextSize(1);
+  c->setFont(big);
+  c->setTextColor(ink);
+  c->setCursor(x, y + 17);
+  c->print(time);
+  int tw = textWidth(big, time, strlen(time));
+  c->setFont(small);
+  c->setTextColor(dim);
+  c->setCursor(x + tw + 3, y + 17);
+  c->print(ampm);
+  c->setCursor(x, y + 37);
+  c->print(date);
+  c->setFont(nullptr);
+}

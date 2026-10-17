@@ -32,6 +32,23 @@ struct Scene {
 
 enum Side { SIDE_NONE, SIDE_CLOUD, SIDE_SPEECH };   // the big bubble beside Famyy
 
+// ---------- the name tag (top bar) and the clock (top left of the stage) ----------
+
+enum Presence { PRES_OFFLINE, PRES_IDLE, PRES_LISTENING, PRES_THINKING, PRES_TALKING };
+
+struct TagStyle {
+  uint16_t bg, pill, letters[5];             // the bar, the tag, F-a-m-y-y each in its own colour
+  uint16_t off, idle, listening, thinking;   // the presence light
+  const GFXfont *font;
+};
+
+// "Famyy" in the middle of the bar, with a light that shows what it's doing; the letters dance while it talks
+void drawNameTag(GFXcanvas16 *c, uint32_t t, Presence p, bool dance, const TagStyle &s);
+
+// a digital clock: "2:51" big, "am" small after it, the date under it
+void drawClock(GFXcanvas16 *c, int x, int y, const char *time, const char *ampm, const char *date,
+               uint16_t ink, uint16_t dim, const GFXfont *big, const GFXfont *small);
+
 // whether there's a big bubble this frame, and which words of it show so far
 Side sideWords(uint32_t t, const Scene &s, const char **text, int *n);
 void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char *text, int n, const BubbleStyle &st);

@@ -8,6 +8,8 @@
 //   ./preview.sh faces     every one of Famyy's moods
 #include <Adafruit_GFX.h>
 #include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold9pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
 #include "../femi/creature.h"
 #include "../femi/fo.h"
 #include "../femi/words.h"
@@ -22,7 +24,10 @@ static const Palette PAL = {rgb565(255, 246, 232), rgb565(43, 36, 32), rgb565(15
 static const BubbleStyle BUBBLE = {0xFFFF, PAL.ink, PAL.ink, &FreeSans9pt7b};
 static const int STAGE_Y = 24, STAGE_H = 216;
 
-static GFXcanvas16 screen(320, 240), stage(320, STAGE_H);
+static GFXcanvas16 screen(320, 240), stage(320, STAGE_H), bar(320, 22);
+static const TagStyle TAG = {PAL.bg, 0xFFFF,
+                             {rgb565(240, 110, 80), rgb565(240, 160, 40), rgb565(80, 170, 100), rgb565(60, 150, 200), rgb565(150, 110, 210)},
+                             PAL.dim, PAL.good, rgb565(60, 150, 220), rgb565(230, 150, 40), &FreeSansBold9pt7b};
 static const char *outDir;
 static int frameNo = 0;
 
@@ -60,6 +65,7 @@ static uint32_t statusSince = 0;
 static void frame(uint32_t t, const Moment &m) {
   stage.fillScreen(PAL.bg);
   stage.drawFastHLine(0, GROUND_Y + 1, 320, PAL.soft);
+  drawClock(&stage, 12, 6, "2:51", "am", "Sun 18 Oct", PAL.ink, PAL.dim, &FreeSansBold12pt7b, &FreeSans9pt7b);
   const char *status = m.w.status ? m.w.status : "";
   if (strncmp(status, shownStatus, sizeof shownStatus - 1) != 0) {
     strlcpy(shownStatus, status, sizeof shownStatus);
@@ -84,10 +90,10 @@ static void frame(uint32_t t, const Moment &m) {
   drawWords(&stage, t, sc, side, text, n, BUBBLE);
 
   screen.fillScreen(PAL.bg);
-  screen.setTextSize(1);
-  screen.setTextColor(PAL.dim);
-  screen.setCursor(10, 8);
-  screen.print("Famyy");
+  Presence pres = m.f == LISTENING ? PRES_LISTENING : m.f == TALKING ? PRES_TALKING
+                : (m.f == THINKING || m.f == WORKING) ? PRES_THINKING : PRES_IDLE;
+  drawNameTag(&bar, t, pres, pres == PRES_TALKING, TAG);
+  screen.drawRGBBitmap(0, 0, bar.getBuffer(), 320, 22);
   screen.drawRGBBitmap(0, STAGE_Y, stage.getBuffer(), 320, STAGE_H);
   save();
 }

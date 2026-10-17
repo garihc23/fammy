@@ -94,6 +94,7 @@ static void clearFlag(bool FemiView::*flag) {
 void loop() {
   uint32_t now = millis();
   TouchInput touch = touchPoll(now);   // read every loop, so an old tap can't leak into something new
+  if (touch.tapped) playerSfx(SFX_TAP);  // a tiny tick under the finger, whatever the tap does
   FemiView v;
   femiLock();
   if (femiView().foState == FO_WORKING && (femiView().speaking || !femiView().busy)) {
@@ -105,6 +106,7 @@ void loop() {
 
   // Fo on the stage, and its sounds
   faceSetFo((FoState)v.foState, v.foCalledAt, v.foSince, (FoTask)v.foTask);
+  faceSetLink(v.linkUp);
   FoPose fo = foPose(now, (FoState)v.foState, v.foCalledAt, v.foSince, 160);   // only its timing matters here
   foCues(fo, v.foCalledAt);
 
@@ -230,7 +232,10 @@ void loop() {
   if (a != APP_NONE) appReq = APP_NONE;
   if (a == APP_RUNNER) app = &RUNNER_APP;
   if (a == APP_MORSE)  app = &MORSE_APP;
-  if (a > APP_NONE) app->start(now);
+  if (a > APP_NONE) {
+    app->start(now);
+    playerSfx(SFX_ARCADE);
+  }
   if (a == APP_QUIT || timerPhase() == T_DONE || v.speaking) app = nullptr;   // a finished timer or Femi talking ends any app
   if (app && !app->update(now, touch)) app = nullptr;
 
@@ -309,6 +314,30 @@ void loop() {
   } else if (f == IDLE && timerPhase() == T_FOCUS && !timerPaused()) {
     f = FOCUS;
   }
+  // a sound for each mood and moment: a happy chirp, a lullaby, a yawn, a glitch, a timer's tune, a remark's boop
+  static Face lastMood = IDLE;
+  static bool lastHacker = false, remarking = false;
+  static uint32_t nextAlarm = 0;
+  if (wanted != lastMood) {
+    if (wanted == HAPPY && now > 8000) playerSfx(SFX_CHIRP);   // (the hello at start-up has its own jingle)
+    if (wanted == SLEEPING) playerSfx(SFX_LULLABY);
+    if (lastMood == SLEEPING) playerSfx(SFX_YAWN);
+    lastMood = wanted;
+  }
+  if (hackerMode != lastHacker) {
+    lastHacker = hackerMode;
+    playerSfx(hackerMode ? SFX_GLITCH : SFX_CHIRP);
+  }
+  if (f == ALARM && now >= nextAlarm) {
+    playerSfx(SFX_ALARM);
+    nextAlarm = now + 2200;
+  } else if (f != ALARM) {
+    nextAlarm = 0;
+  }
+  bool remark = f == IDLE && !timerCounting() && now > 15000 && now % 30000 < 5000;   // as face.cpp shows them
+  if (remark && !remarking) playerSfx(SFX_BOOP);
+  remarking = remark;
+
   // words for the bubbles: what was heard, how it's going, and what Famyy is saying
   Words words = {v.heard, v.heardSince, v.busy ? v.line : "", v.caption, v.speakSince, v.speakMs};
   faceFrame(now, f, words);

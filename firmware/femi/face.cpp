@@ -10,6 +10,8 @@
 #include "words.h"
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+#include <time.h>
 
 struct Drop { int x; float y, v; };
 struct Theme {
@@ -19,7 +21,7 @@ struct Theme {
   uint16_t fo, foInk;                 // Fo
   uint16_t bubble;                    // inside speech bubbles and thought clouds
   bool hacker;                        // code rain and signal glitches
-  const char *prompt, *prefix;        // top bar; what starts the bottom line
+  const char *prefix;                 // what starts a card's or an app's bottom line
   const char *quips[5];
   const char *listening, *happy, *thinking, *sleeping;
   const char *focus, *brk, *done, *ask;
@@ -37,7 +39,7 @@ static const Theme NORMAL = {
   rgb565(255, 255, 255), rgb565(43, 36, 32),
   rgb565(255, 255, 255),
   false,
-  "Famyy", "",
+  "",
   {"home sweet home", "say: hey Famyy", "tap me to talk", "here for the family", "all's well at home"},
   "listening...", "yay!", "thinking", "zzz",
   "focus", "break", "time's up!", "how long? (min)",
@@ -50,7 +52,7 @@ static const Theme HACKER = {
   rgb565(200, 255, 215), rgb565(57, 255, 122),
   0x0000,
   true,
-  "root@famyy:~#", "> ",
+  "> ",
   {"sudo make coffee", "nmap -sV localhost", "tail -f /var/log/life", "ssh famyy@home", "chmod +x brain.sh"},
   "sniffing audio", "access granted :)", "cracking", "halt",
   "exploit", "cooldown", "pwned! time up", "enter duration:",
@@ -63,7 +65,7 @@ static const int STAGE_Y = 24, STAGE_H = 216;                             // the
 static const int TERM_Y = 204, TERM_H = 36;
 
 static Adafruit_ST7789 tft(&SPI, TFT_CS, TFT_DC, TFT_RST);
-static GFXcanvas16 *body, *stage, *term;   // allocated in faceBegin(), once the extra memory (PSRAM) is ready
+static GFXcanvas16 *body, *stage, *term, *bar;   // allocated in faceBegin(), once the extra memory (PSRAM) is ready
 static Drop rain[18];
 static bool stageShown = false;            // the full-width stage is on screen (cards and apps must clear its sides)
 
@@ -82,8 +84,13 @@ static float gazeX = 0, gazeY = 0, gazeTX = 0, gazeTY = 0;
 static uint32_t nextGaze = 0, nextBlink = 2000, blinkStart = 0, nextGlitch = 4000, glitchUntil = 0;
 // what is on screen now, so each zone is only redrawn when it changes
 static uint32_t lastTerm = 0;
-static int shownTimerKey = -1;
-static bool shownRec = false, shownDot = false, shownInvert = false, shownFps = false;
+static bool shownInvert = false, shownFps = false;
+
+// the top bar
+static Presence presence = PRES_OFFLINE;
+static bool linkUp = false;
+static char fpsText[10] = "";   // an app's frame rate, shown on the right while it runs
+static bool barDirty = true;
 
 // ---------- drawing helpers ----------
 
@@ -110,6 +117,17 @@ static float blinkAmount(uint32_t now) {
 
 // ---------- screen zones ----------
 
+// the time as the clock shows it, once the internet has told the device what time it is
+static bool clockText(char *hm, size_t hn, char *ap, size_t an, char *date, size_t dn) {
+  struct tm tm;
+  if (!getLocalTime(&tm, 0)) return false;
+  int h = tm.tm_hour % 12;
+  snprintf(hm, hn, "%d:%02d", h ? h : 12, tm.tm_min);
+  snprintf(ap, an, "%s", tm.tm_hour < 12 ? "am" : "pm");
+  strftime(date, dn, "%a %d %b", &tm);
+  return true;
+}
+
 static Palette palette() {
   return {th->bg, th->ink, th->dim, th->rain, th->wall, th->roof, th->door, th->blush, th->good, th->accent, th->fo, th->foInk};
 }
@@ -120,6 +138,9 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   GFXcanvas16 *c = stage;
   c->fillScreen(th->bg);
   c->drawFastHLine(0, GROUND_Y + 1, 320, th->rain);   // the floor
+  char hm[8], ap[4], date[24];
+  if (clockText(hm, sizeof hm, ap, sizeof ap, date, sizeof date))
+    drawClock(c, 12, 6, hm, ap, date, th->ink, th->dim, &FreeSansBold12pt7b, &FreeSans9pt7b);
 
   // code rain, in hacking mode
   if (th->hacker) {
@@ -187,46 +208,60 @@ static void leaveStage() {
   stageShown = false;
 }
 
-static void drawStatus() {
-  tft.fillRect(0, 0, 200, 20, th->bg);
-  tft.setTextSize(1);
-  tft.setTextColor(th->dim);
-  tft.setCursor(10, 8);
-  tft.print(th->prompt);
+static TagStyle tagStyle() {
+  if (th->hacker) return {th->bg, th->bg, {th->ink, th->ink, th->ink, th->ink, th->ink}, th->dim, th->ink, th->ink, th->ink, &FreeSansBold9pt7b};
+  return {th->bg, th->bubble,
+          {rgb565(240, 110, 80), rgb565(240, 160, 40), rgb565(80, 170, 100), rgb565(60, 150, 200), rgb565(150, 110, 210)},
+          th->dim, th->good, rgb565(60, 150, 220), th->warn, &FreeSansBold9pt7b};
 }
 
-// small countdown in the top bar, visible whatever mood the buddy is in
-static void drawStatusTimer(uint32_t now) {
-  bool on = timerCounting();
-  int secs = on ? (timerLeft(now) + 999) / 1000 : 0;
-  int key = on ? secs * 2 + timerPaused() : -1;
-  if (key == shownTimerKey) return;
-  tft.fillRect(200, 4, 56, 14, th->bg);
-  if (on) {
+// the top bar: a running timer on the left, Famyy's name tag in the middle, REC (or an app's frame rate) on the right.
+// Drawn off-screen and only when something in it changes.
+static void drawBar(uint32_t now) {
+  struct Shown {
+    uint32_t frame;
+    int secs;
+    bool paused, rec, dot;
+    Presence p;
+    char fps[10];
+  };
+  static Shown shown;
+  bool animated = presence == PRES_LISTENING || presence == PRES_THINKING || presence == PRES_TALKING;
+  bool counting = timerCounting();
+  Shown st;
+  memset(&st, 0, sizeof st);   // so whole-struct comparison sees no stray padding
+  st.frame = animated ? now / 66 : 0;   // ~15 frames a second while the light pulses
+  st.secs = counting ? (timerLeft(now) + 999) / 1000 : -1;
+  st.paused = counting && timerPaused();
+  st.rec = listening;
+  st.dot = listening && (now / 300) % 2 == 0;
+  st.p = presence;
+  strlcpy(st.fps, fpsText, sizeof st.fps);
+  if (!barDirty && memcmp(&st, &shown, sizeof st) == 0) return;
+
+  drawNameTag(bar, now, presence, presence == PRES_TALKING, tagStyle());
+  bar->setTextSize(1);
+  if (counting) {
     char buf[8];
-    snprintf(buf, sizeof buf, "%02d:%02d", secs / 60, secs % 60);
-    tft.setTextSize(1);
-    tft.setTextColor(timerPaused() ? th->dim : th->ink);
-    tft.setCursor(214, 8);
-    tft.print(buf);
+    snprintf(buf, sizeof buf, "%02d:%02d", st.secs / 60, st.secs % 60);
+    bar->setTextColor(st.paused ? th->dim : th->ink);
+    bar->setCursor(10, 8);
+    bar->print(buf);
   }
-  shownTimerKey = key;
-}
-
-static void drawRec(uint32_t now) {
-  bool on = listening, dot = on && (now / 300) % 2 == 0;
-  if (on == shownRec && dot == shownDot) return;
-  tft.fillRect(258, 4, 62, 14, th->bg);
-  if (on) {
-    if (dot) tft.fillRect(262, 7, 8, 8, th->ink);
-    else     tft.drawRect(262, 7, 8, 8, th->dim);
-    tft.setTextSize(1);
-    tft.setTextColor(th->ink);
-    tft.setCursor(274, 8);
-    tft.print("REC");
+  if (st.rec) {
+    if (st.dot) bar->fillRect(262, 7, 8, 8, th->ink);
+    else        bar->drawRect(262, 7, 8, 8, th->dim);
+    bar->setTextColor(th->ink);
+    bar->setCursor(274, 8);
+    bar->print("REC");
+  } else if (st.fps[0]) {
+    bar->setTextColor(th->dim);
+    bar->setCursor(262, 8);
+    bar->print(st.fps);
   }
-  shownRec = on;
-  shownDot = dot;
+  tft.drawRGBBitmap(0, 0, bar->getBuffer(), 320, 22);
+  shown = st;
+  barDirty = false;
 }
 
 // ---------- public ----------
@@ -243,12 +278,13 @@ void faceBegin() {
   tft.invertDisplay(false);
   tft.setRotation(1);
   tft.fillScreen(th->bg);
-  drawStatus();
+  barDirty = true;
 
   body = new GFXcanvas16(BODY_W, BODY_H);
   stage = new GFXcanvas16(320, STAGE_H);
   term = new GFXcanvas16(320, TERM_H);
-  if (!body->getBuffer() || !stage->getBuffer() || !term->getBuffer()) Serial.println("canvas alloc FAILED");
+  bar = new GFXcanvas16(320, 22);
+  if (!body->getBuffer() || !stage->getBuffer() || !term->getBuffer() || !bar->getBuffer()) Serial.println("canvas alloc FAILED");
   for (int i = 0; i < 18; i++) rain[i] = {4 + i * 18, (float)random(0, 200), 1.5f + random(0, 25) / 10.0f};
 }
 
@@ -258,9 +294,7 @@ static void applyTheme() {
   if (want != th) {
     th = want;
     tft.fillScreen(th->bg);
-    drawStatus();
-    shownTimerKey = -2;
-    shownRec = !listening;
+    barDirty = true;
   }
 }
 
@@ -269,13 +303,7 @@ static void drawFps(uint32_t now) {
   static uint32_t frames = 0, since = 0;
   frames++;
   if (now - since < 500) return;
-  char buf[12];
-  snprintf(buf, sizeof buf, "%2lu fps", (unsigned long)(frames * 1000 / (now - since)));
-  tft.fillRect(140, 4, 58, 14, th->bg);
-  tft.setTextSize(1);
-  tft.setTextColor(th->dim);
-  tft.setCursor(150, 8);
-  tft.print(buf);
+  snprintf(fpsText, sizeof fpsText, "%2lu fps", (unsigned long)(frames * 1000 / (now - since)));
   frames = 0;
   since = now;
   shownFps = true;
@@ -326,9 +354,10 @@ void faceAppFrame(uint32_t now, const App &app, float exitHold) {
     tft.drawRGBBitmap(0, TERM_Y, term->getBuffer(), 320, TERM_H);
     lastTerm = now;
   }
-  drawStatusTimer(now);
-  drawRec(now);
+  drawBar(now);
 }
+
+void faceSetLink(bool up) { linkUp = up; }
 
 void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task) {
   foState = state;
@@ -340,9 +369,14 @@ void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task) {
 void faceFrame(uint32_t now, Face f, const Words &words) {
   applyTheme();
   if (shownFps) {   // an app just ended: clear its frame-rate readout
-    tft.fillRect(140, 4, 58, 14, th->bg);
+    fpsText[0] = 0;
     shownFps = false;
   }
+  presence = !linkUp ? PRES_OFFLINE
+           : f == LISTENING ? PRES_LISTENING
+           : f == TALKING ? PRES_TALKING
+           : (f == THINKING || f == WORKING) ? PRES_THINKING
+           : PRES_IDLE;
 
   // whole-screen flash while a finished timer is ringing
   bool inv = f == ALARM && (now / 400) % 2;
@@ -375,8 +409,7 @@ void faceFrame(uint32_t now, Face f, const Words &words) {
   }
 
   drawStage(now, f, blinkAmount(now), words);
-  drawStatusTimer(now);
-  drawRec(now);
+  drawBar(now);
 }
 
 // ---------- Femi's screens ----------
@@ -440,8 +473,7 @@ void faceCardFrame(uint32_t now, bool urgent, const char *title, const char *tex
     drawHint(now, hint);
     lastTerm = now;
   }
-  drawStatusTimer(now);
-  drawRec(now);
+  drawBar(now);
 }
 
 // a list (recent calls, ...) on a card over the whole screen: a title, up to 8 rows; drawn once
@@ -505,8 +537,6 @@ void facePhotoFrame(uint32_t now, const uint16_t *pixels, const char *caption, b
 void faceRepaint() {
   tft.fillScreen(th->bg);
   stageShown = false;
-  drawStatus();
-  shownTimerKey = -2;
-  shownRec = !listening;
+  barDirty = true;
   shownFps = false;
 }

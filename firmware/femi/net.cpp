@@ -87,7 +87,7 @@ static void onCommand(const char *j) {
     jsonStr(j, "id", v.approveId, sizeof v.approveId);
     jsonStr(j, "text", v.approveText, sizeof v.approveText);
     femiUnlock();
-    playerChime(true);
+    playerSfx(SFX_QUESTION);
   } else if (!strcmp(type, "reminder")) {
     femiLock();
     FemiView &v = femiView();
@@ -95,7 +95,7 @@ static void onCommand(const char *j) {
     jsonStr(j, "id", v.remindId, sizeof v.remindId);
     jsonStr(j, "text", v.remindText, sizeof v.remindText);
     femiUnlock();
-    playerChime(true);
+    playerSfx(SFX_BELL);
   } else if (!strcmp(type, "image")) {
     imageBytes = min((uint32_t)jsonInt(j, "bytes", 0), (uint32_t)(PHOTO_W * PHOTO_H * 2));
     imageAt = 0;
@@ -124,6 +124,7 @@ static void onCommand(const char *j) {
     v.list = true;
     v.listSince = now;
     femiUnlock();
+    playerSfx(SFX_FLIP);
   } else if (!strcmp(type, "heard")) {   // the full transcript, for the thought cloud
     femiLock();
     FemiView &v = femiView();
@@ -245,6 +246,7 @@ static bool pumpIncoming() {
         femiView().photo = true;
         femiView().photoSince = millis();
         femiUnlock();
+        playerSfx(SFX_SHUTTER);
       }
     } else {
       uint32_t n = min((uint32_t)r, (uint32_t)sizeof json - 1 - jsonGot);
@@ -271,6 +273,7 @@ static void netTask(void *) {
       continue;
     }
     if (!announcedWifi) {
+      configTzTime("IST-5:30", "pool.ntp.org", "time.google.com");   // the clock: India time, from the internet
       Serial.printf(">> wifi up, my address %s, brain at %s:%d\n", WiFi.localIP().toString().c_str(), BRAIN_HOST, BRAIN_PORT);
       announcedWifi = true;
     }
