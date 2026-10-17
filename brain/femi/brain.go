@@ -29,7 +29,8 @@ const SampleRate = 16000
 const (
 	maxAudioBytes = 15 * SampleRate * 2     // 15 s of pcm_s16le mono
 	minAudioBytes = SampleRate * 2 * 3 / 10 // 0.3 s
-	lineMax       = 24                      // STATE line limit
+	lineMax       = 90                      // STATE line limit (shown in a speech bubble)
+	heardMax      = 300                     // longest transcript sent to the device in a "heard" command
 )
 
 // Spoken fixed phrases.
@@ -384,6 +385,8 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	b.mu.Unlock()
 
 	b.logf("turn %d [%s] %q (stt %dms, session %q)", n, source, text, stt.Milliseconds(), session)
+	// the full transcript first, then the STATE: same connection, so the device sees them in this order
+	_ = b.cfg.Device.Command(heardCommand{Type: "heard", Text: clip(text, heardMax)})
 	_ = b.cfg.Device.State("thinking", clip(text, lineMax)) // the device prints its own "> " prompt
 
 	tctx, cancel := context.WithTimeout(ctx, b.cfg.TurnTimeout)
@@ -449,6 +452,13 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 
 // foCommand tells the device about Fo's visit: "start" (with the kind of job,
 // for the icon Fo works under) and "done".
+// heardCommand shows what Famyy understood. "type" stays first and "text" last:
+// the device reads control frames from a small buffer and keys on that order.
+type heardCommand struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 type foCommand struct {
 	Type  string `json:"type"`
 	State string `json:"state"`

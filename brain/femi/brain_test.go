@@ -193,9 +193,9 @@ func TestTextTurnStatesAndReply(t *testing.T) {
 		}
 	}
 	want := []string{
-		"thinking|what's the weather in M…",
+		"thinking|what's the weather in Mumbai today?",
 		"working|Asking Fo…",
-		"working|Comparing sources and p…",
+		"working|Comparing sources and prices across sites",
 	}
 	if strings.Join(states, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("states:\n%s\nwant:\n%s", strings.Join(states, "\n"), strings.Join(want, "\n"))
@@ -596,5 +596,37 @@ func TestFoTask(t *testing.T) {
 		if got := foTask(req); got != want {
 			t.Errorf("foTask(%q) = %q, want %q", req, got, want)
 		}
+	}
+}
+
+func TestHeardCommandPrecedesThinkingState(t *testing.T) {
+	long := strings.Repeat("please find me a good salon near the office ", 10) // ~440 characters
+	b, dev := newBrain(t, replyThinker("ok"), nil)
+	b.DeviceFrame(textEvent(long))
+	dev.waitFor(t, "reply", func(r rec) bool { return r.Kind == "say" })
+
+	recs := dev.all()
+	hi, ti := -1, -1
+	for i, r := range recs {
+		if r.Kind == "command" && r.Command["type"] == "heard" && hi < 0 {
+			hi = i
+		}
+		if r.Kind == "state" && r.Face == "thinking" && ti < 0 {
+			ti = i
+		}
+	}
+	if hi < 0 || ti < 0 || hi > ti {
+		t.Fatalf("want the heard command before the thinking state, got heard at %d, thinking at %d: %+v", hi, ti, recs)
+	}
+	heard, _ := recs[hi].Command["text"].(string)
+	if n := len([]rune(heard)); n != heardMax || !strings.HasPrefix(heard, "please find me a good salon") || !strings.HasSuffix(heard, "…") {
+		t.Errorf("heard text is %d runes: %q", n, heard)
+	}
+	if n := len([]rune(recs[ti].Line)); n != lineMax {
+		t.Errorf("thinking line is %d runes, want it cut to %d", n, lineMax)
+	}
+	raw, _ := json.Marshal(heardCommand{Type: "heard", Text: "hi"})
+	if string(raw) != `{"type":"heard","text":"hi"}` {
+		t.Errorf("key order: %s", raw)
 	}
 }
