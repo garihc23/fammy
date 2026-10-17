@@ -45,6 +45,20 @@ static const int WALL_W = 100, WALL_H = 86, ARM_REACH = 30;
 
 int famyyHandX(const Look &k) { return k.cx + WALL_W / 2 + 8 + (int)(k.reach * ARM_REACH); }
 
+// how far the whole house bounces, breathes or sinks this frame
+static int bobOf(const Look &k, uint32_t t) {
+  bool holding = k.reach > 0.02f;
+  return (k.face == HAPPY && !holding) ? -(int)(fabsf(sinf(t / 260.0f)) * 8)
+       : (k.face == ALARM)             ? -(int)(fabsf(sinf(t / 150.0f)) * 5)
+       : (k.face == SLEEPING)          ? 2
+       : (int)(sinf(t / 700.0f) * 1.5f);   // breathing
+}
+
+void famyyRoofTop(const Look &k, uint32_t t, int *x, int *y) {
+  *x = k.cx;
+  *y = GROUND_Y - WALL_H - 10 + bobOf(k, t) - 50;
+}
+
 static void eyesOval(GFXcanvas16 *c, int x, int y, int rx, int ry, const Palette &p) {   // big ovals with a shine
   for (int e : {x - 19, x + 19}) {
     fillEllipse(c, e, y, rx, ry, p.ink);
@@ -57,10 +71,7 @@ void drawFamyy(GFXcanvas16 *c, uint32_t t, const Look &k, const Palette &p) {
   const int O = OUTLINE;
   bool holding = k.reach > 0.02f;
   bool cheer = (f == HAPPY || f == ALARM) && !holding;   // arms up
-  int bob = (f == HAPPY && !holding) ? -(int)(fabsf(sinf(t / 260.0f)) * 8)
-          : (f == ALARM)             ? -(int)(fabsf(sinf(t / 150.0f)) * 5)
-          : (f == SLEEPING)          ? 2
-          : (int)(sinf(t / 700.0f) * 1.5f);   // breathing
+  int bob = bobOf(k, t);
   int cx = k.cx + (f == ALARM ? (int)(sinf(t / 40.0f) * 2) : 0);
   int top = GROUND_Y - WALL_H - 10 + bob;   // the walls' top edge (feet end on the ground)
   int mid = top + 48;                           // shoulder height
@@ -98,6 +109,17 @@ void drawFamyy(GFXcanvas16 *c, uint32_t t, const Look &k, const Palette &p) {
   c->fillTriangle(cx - 66, top + 12, cx + 66, top + 12, cx, top - 50, p.ink);
   c->fillTriangle(cx - 58, top + 8, cx + 58, top + 8, cx, top - 43, p.roof);
   c->fillRoundRect(cx - 54, top + 6, 108, 7, 3, p.ink);
+  if (k.nameFont) {   // its name, painted on the roof like a nameplate on a home
+    const char *name = "Famyy";
+    int w = 0;
+    for (const char *ch = name; *ch; ch++) w += k.nameFont->glyph[*ch - k.nameFont->first].xAdvance;
+    c->setFont(k.nameFont);
+    c->setTextSize(1);
+    c->setTextColor(p.sign);
+    c->setCursor(cx - w / 2, top + 2);
+    c->print(name);
+    c->setFont(nullptr);
+  }
   c->fillRoundRect(cx - 14, top + 60, 28, WALL_H - 58, 10, p.ink);
   c->fillRoundRect(cx - 12, top + 62, 24, WALL_H - 60, 9, p.door);
   c->fillCircle(cx + 6, top + 76, 2, p.ink);

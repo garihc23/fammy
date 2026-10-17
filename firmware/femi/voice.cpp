@@ -281,6 +281,7 @@ static void playSfx(int s) {
       whoosh(80, 6000);
       break;
     case SFX_TAP:    tone(2600, 12, 1800, 0); break;                              // a tiny tick under your finger
+    case SFX_SPARK:  sweep(900, 2600, 120, 2400); tone(2637, 320, 2400, 130, 0.3f); break;   // Claude lands on the roof
   }
 }
 

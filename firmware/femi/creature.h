@@ -10,6 +10,7 @@ struct Palette {
   uint16_t wall, roof, door, blush;   // Famyy's colours
   uint16_t good, accent;              // a green tick; small highlights
   uint16_t fo, foInk;                 // Fo: white body, black lines
+  uint16_t sign;                      // Famyy's name, painted on its roof
 };
 
 // how Famyy looks this frame
@@ -22,6 +23,7 @@ struct Look {
   bool listen;         // sound waves coming in at its sides
   float reach;         // 0..1: right arm out, for a handshake or to catch something
   int handDy;          // the hand bobbing while it shakes
+  const GFXfont *nameFont;   // its name on the roof, in this font (nullptr: no name)
 };
 
 const int GROUND_Y = 205;                    // where feet stand: low on the stage, leaving the sky for words
@@ -30,6 +32,7 @@ const int OUTLINE = 3;             // Famyy's line weight
 
 void drawFamyy(GFXcanvas16 *c, uint32_t t, const Look &k, const Palette &p);
 int famyyHandX(const Look &k);   // where the reaching hand is
+void famyyRoofTop(const Look &k, uint32_t t, int *x, int *y);   // the peak of the roof, where Claude sits
 
 // drawing helpers, shared with Fo
 void thickLine(GFXcanvas16 *c, int x0, int y0, int x1, int y1, int w, uint16_t col);

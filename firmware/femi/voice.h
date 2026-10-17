@@ -27,7 +27,7 @@ void playerChime(bool happy);                      // short sound cue: happy ris
 enum Sfx {
   SFX_READY = 1, SFX_SOFT, SFX_TICK, SFX_WHOOSH, SFX_CLINK, SFX_DING, SFX_POP, SFX_SPARKLE, SFX_JINGLE,
   SFX_CHIRP, SFX_QUESTION, SFX_BELL, SFX_SHUTTER, SFX_FLIP, SFX_BOOP, SFX_YAWN, SFX_LULLABY, SFX_ALARM,
-  SFX_ARCADE, SFX_GLITCH, SFX_TAP
+  SFX_ARCADE, SFX_GLITCH, SFX_TAP, SFX_SPARK
 };
 void playerSfx(Sfx s);
 void playerClip(int clip);                         // a stored spoken clip (clips.h)

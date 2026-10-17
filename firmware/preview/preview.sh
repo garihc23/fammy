@@ -12,7 +12,7 @@ mkdir -p "$build" "$(dirname "$out")"
 rm -rf "$frames" && mkdir -p "$frames"
 
 g++ -std=c++17 -O2 -w -DARDUINO=100 -I"$here/stub" -I"$gfx" \
-  "$here/main.cpp" "$here/../femi/creature.cpp" "$here/../femi/fo.cpp" "$here/../femi/bubble.cpp" "$here/../femi/words.cpp" "$gfx/Adafruit_GFX.cpp" \
+  "$here/main.cpp" "$here/../femi/creature.cpp" "$here/../femi/fo.cpp" "$here/../femi/bubble.cpp" "$here/../femi/words.cpp" "$here/../femi/claude.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$build/preview"
 "$build/preview" "$what" "$frames"
 ffmpeg -loglevel error -y -framerate 20 -i "$frames/f%04d.ppm" \

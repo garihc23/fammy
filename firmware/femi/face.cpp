@@ -8,9 +8,11 @@
 #include "creature.h"
 #include "fo.h"
 #include "words.h"
+#include "claude.h"
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
-#include <Fonts/FreeSansBold12pt7b.h>
+#include "QuicksandBold16.h"
+#include "QuicksandMedium13.h"
 #include <time.h>
 
 struct Drop { int x; float y, v; };
@@ -20,6 +22,7 @@ struct Theme {
   uint16_t wall, roof, door, blush;   // Famyy, the little house
   uint16_t fo, foInk;                 // Fo
   uint16_t bubble;                    // inside speech bubbles and thought clouds
+  uint16_t sign, claude, claudeEyes;  // the name on the roof; Claude on top of it
   bool hacker;                        // code rain and signal glitches
   const char *prefix;                 // what starts a card's or an app's bottom line
   const char *quips[5];
@@ -35,9 +38,10 @@ static constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
 static const Theme NORMAL = {
   rgb565(255, 246, 232), rgb565(43, 36, 32), rgb565(150, 138, 124), rgb565(228, 214, 196),
   rgb565(70, 170, 100), rgb565(220, 80, 70), rgb565(230, 150, 40), rgb565(240, 120, 80),
-  rgb565(255, 178, 138), rgb565(214, 98, 74), rgb565(232, 140, 104), rgb565(255, 160, 160),
+  rgb565(255, 178, 138), rgb565(200, 86, 64), rgb565(232, 140, 104), rgb565(255, 160, 160),
   rgb565(255, 255, 255), rgb565(43, 36, 32),
   rgb565(255, 255, 255),
+  rgb565(255, 250, 240), rgb565(217, 119, 87), rgb565(43, 36, 32),   // white on the roof: ~4.3:1 contrast
   false,
   "",
   {"home sweet home", "say: hey Famyy", "tap me to talk", "here for the family", "all's well at home"},
@@ -51,6 +55,7 @@ static const Theme HACKER = {
   rgb565(6, 40, 18), rgb565(20, 110, 55), rgb565(10, 70, 32), rgb565(30, 150, 70),
   rgb565(200, 255, 215), rgb565(57, 255, 122),
   0x0000,
+  rgb565(120, 255, 170), rgb565(217, 119, 87), 0x0000,
   true,
   "> ",
   {"sudo make coffee", "nmap -sV localhost", "tail -f /var/log/life", "ssh famyy@home", "chmod +x brain.sh"},
@@ -86,8 +91,11 @@ static uint32_t nextGaze = 0, nextBlink = 2000, blinkStart = 0, nextGlitch = 400
 static uint32_t lastTerm = 0;
 static bool shownInvert = false, shownFps = false;
 
+// Claude on the roof: when Famyy started and stopped waiting on it
+static bool claudeOn = false;
+static uint32_t claudeSince = 0, claudeUntil = 0;
+
 // the top bar
-static Presence presence = PRES_OFFLINE;
 static bool linkUp = false;
 static char fpsText[10] = "";   // an app's frame rate, shown on the right while it runs
 static bool barDirty = true;
@@ -129,7 +137,7 @@ static bool clockText(char *hm, size_t hn, char *ap, size_t an, char *date, size
 }
 
 static Palette palette() {
-  return {th->bg, th->ink, th->dim, th->rain, th->wall, th->roof, th->door, th->blush, th->good, th->accent, th->fo, th->foInk};
+  return {th->bg, th->ink, th->dim, th->rain, th->wall, th->roof, th->door, th->blush, th->good, th->accent, th->fo, th->foInk, th->sign};
 }
 
 static BubbleStyle bubbleStyle() { return {th->bubble, th->ink, th->ink, &FreeSans9pt7b}; }
@@ -138,9 +146,6 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   GFXcanvas16 *c = stage;
   c->fillScreen(th->bg);
   c->drawFastHLine(0, GROUND_Y + 1, 320, th->rain);   // the floor
-  char hm[8], ap[4], date[24];
-  if (clockText(hm, sizeof hm, ap, sizeof ap, date, sizeof date))
-    drawClock(c, 12, 6, hm, ap, date, th->ink, th->dim, &FreeSansBold12pt7b, &FreeSans9pt7b);
 
   // code rain, in hacking mode
   if (th->hacker) {
@@ -189,12 +194,15 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   p = foPose(t, foState, foCalledAt, foSince, (int)homeX);
   sc.homeX = (int)homeX;
 
-  Look k = {(int)homeX, f, blink, gazeX, gazeY, playerLevel(), listening, 0, 0};
+  Look k = {(int)homeX, f, blink, gazeX, gazeY, playerLevel(), listening, 0, 0, &QuicksandBold16};
   foPlaceFamyy(p, k);
   Palette pal = palette();
   drawFamyy(c, t, k, pal);
+  int rx, ry;
+  famyyRoofTop(k, t, &rx, &ry);
+  drawClaude(c, t, claudePose(t, claudeOn, claudeSince, claudeUntil, p.phase != PH_NONE), rx, ry + 3, th->claude, th->claudeEyes);
   foDraw(c, t, p, foTask, pal);
-  drawWords(c, t, sc, side, text, n, BubbleStyle{th->bubble, th->ink, th->ink, &FreeSans9pt7b});
+  drawWords(c, t, sc, side, text, n, BubbleStyle{th->bubble, th->ink, th->ink, &QuicksandBold16});
   if (th->hacker && t < glitchUntil) glitch(c);
 
   tft.drawRGBBitmap(0, STAGE_Y, c->getBuffer(), 320, STAGE_H);
@@ -208,38 +216,41 @@ static void leaveStage() {
   stageShown = false;
 }
 
-static TagStyle tagStyle() {
-  if (th->hacker) return {th->bg, th->bg, {th->ink, th->ink, th->ink, th->ink, th->ink}, th->dim, th->ink, th->ink, th->ink, &FreeSansBold9pt7b};
-  return {th->bg, th->bubble,
-          {rgb565(240, 110, 80), rgb565(240, 160, 40), rgb565(80, 170, 100), rgb565(60, 150, 200), rgb565(150, 110, 210)},
-          th->dim, th->good, rgb565(60, 150, 220), th->warn, &FreeSansBold9pt7b};
-}
-
-// the top bar: a running timer on the left, Famyy's name tag in the middle, REC (or an app's frame rate) on the right.
-// Drawn off-screen and only when something in it changes.
+// the top bar: a running timer on the left, the time and date quietly in the middle, REC (or an app's frame rate)
+// on the right. Drawn off-screen and only when something in it changes.
 static void drawBar(uint32_t now) {
   struct Shown {
-    uint32_t frame;
-    int secs;
-    bool paused, rec, dot;
-    Presence p;
+    int minute, secs;
+    bool paused, rec, dot, online;
     char fps[10];
   };
   static Shown shown;
-  bool animated = presence == PRES_LISTENING || presence == PRES_THINKING || presence == PRES_TALKING;
   bool counting = timerCounting();
+  char hm[8], ap[4], date[24];
+  bool known = clockText(hm, sizeof hm, ap, sizeof ap, date, sizeof date);
+  struct tm tm;
   Shown st;
   memset(&st, 0, sizeof st);   // so whole-struct comparison sees no stray padding
-  st.frame = animated ? now / 66 : 0;   // ~15 frames a second while the light pulses
+  st.minute = known && getLocalTime(&tm, 0) ? tm.tm_hour * 60 + tm.tm_min : -1;
+  st.online = linkUp;
   st.secs = counting ? (timerLeft(now) + 999) / 1000 : -1;
   st.paused = counting && timerPaused();
   st.rec = listening;
   st.dot = listening && (now / 300) % 2 == 0;
-  st.p = presence;
   strlcpy(st.fps, fpsText, sizeof st.fps);
   if (!barDirty && memcmp(&st, &shown, sizeof st) == 0) return;
 
-  drawNameTag(bar, now, presence, presence == PRES_TALKING, tagStyle());
+  bar->fillScreen(th->bg);
+  if (known) {   // "2:51 am  Sun 18 Oct", small and calm: the time, not the star
+    char line[40];
+    snprintf(line, sizeof line, "%s %s   %s", hm, ap, date);
+    int w = textWidth(&QuicksandMedium13, line, strlen(line));
+    bar->setFont(&QuicksandMedium13);
+    bar->setTextColor(linkUp ? th->dim : th->rain);   // fainter while the brain is out of reach
+    bar->setCursor((320 - w) / 2, 15);
+    bar->print(line);
+    bar->setFont(nullptr);
+  }
   bar->setTextSize(1);
   if (counting) {
     char buf[8];
@@ -359,6 +370,17 @@ void faceAppFrame(uint32_t now, const App &app, float exitHold) {
 
 void faceSetLink(bool up) { linkUp = up; }
 
+void faceSetClaude(uint32_t now, bool on) {
+  if (on == claudeOn) return;
+  claudeOn = on;
+  if (on) {
+    claudeSince = now;
+    claudeUntil = 0;
+  } else {
+    claudeUntil = now;
+  }
+}
+
 void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task) {
   foState = state;
   foCalledAt = calledAt;
@@ -372,11 +394,7 @@ void faceFrame(uint32_t now, Face f, const Words &words) {
     fpsText[0] = 0;
     shownFps = false;
   }
-  presence = !linkUp ? PRES_OFFLINE
-           : f == LISTENING ? PRES_LISTENING
-           : f == TALKING ? PRES_TALKING
-           : (f == THINKING || f == WORKING) ? PRES_THINKING
-           : PRES_IDLE;
+
 
   // whole-screen flash while a finished timer is ringing
   bool inv = f == ALARM && (now / 400) % 2;

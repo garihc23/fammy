@@ -8,26 +8,27 @@
 //   ./preview.sh faces     every one of Famyy's moods
 #include <Adafruit_GFX.h>
 #include <Fonts/FreeSans9pt7b.h>
-#include <Fonts/FreeSansBold9pt7b.h>
-#include <Fonts/FreeSansBold12pt7b.h>
+#include "../femi/QuicksandBold16.h"
+#include "../femi/QuicksandMedium13.h"
 #include "../femi/creature.h"
 #include "../femi/fo.h"
 #include "../femi/words.h"
+#include "../femi/claude.h"
 
 static constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 // the NORMAL (home) theme from face.cpp
 static const Palette PAL = {rgb565(255, 246, 232), rgb565(43, 36, 32), rgb565(150, 138, 124), rgb565(228, 214, 196),
-                            rgb565(255, 178, 138), rgb565(214, 98, 74), rgb565(232, 140, 104), rgb565(255, 160, 160),
-                            rgb565(70, 170, 100), rgb565(240, 120, 80), rgb565(255, 255, 255), rgb565(43, 36, 32)};
-static const BubbleStyle BUBBLE = {0xFFFF, PAL.ink, PAL.ink, &FreeSans9pt7b};
+                            rgb565(255, 178, 138), rgb565(200, 86, 64), rgb565(232, 140, 104), rgb565(255, 160, 160),
+                            rgb565(70, 170, 100), rgb565(240, 120, 80), rgb565(255, 255, 255), rgb565(43, 36, 32),
+                            rgb565(255, 250, 240)};
+static const uint16_t CLAUDE = rgb565(217, 119, 87);
+static BubbleStyle BUBBLE = {0xFFFF, PAL.ink, PAL.ink, &QuicksandBold16};
 static const int STAGE_Y = 24, STAGE_H = 216;
 
 static GFXcanvas16 screen(320, 240), stage(320, STAGE_H), bar(320, 22);
-static const TagStyle TAG = {PAL.bg, 0xFFFF,
-                             {rgb565(240, 110, 80), rgb565(240, 160, 40), rgb565(80, 170, 100), rgb565(60, 150, 200), rgb565(150, 110, 210)},
-                             PAL.dim, PAL.good, rgb565(60, 150, 220), rgb565(230, 150, 40), &FreeSansBold9pt7b};
+
 static const char *outDir;
 static int frameNo = 0;
 
@@ -58,6 +59,8 @@ struct Moment {
 };
 
 static float homeX = HOME_X;
+static bool claudeOn = false;
+static uint32_t claudeSince = 0, claudeUntil = 0;
 static char shownStatus[96];
 static uint32_t statusSince = 0;
 
@@ -65,7 +68,6 @@ static uint32_t statusSince = 0;
 static void frame(uint32_t t, const Moment &m) {
   stage.fillScreen(PAL.bg);
   stage.drawFastHLine(0, GROUND_Y + 1, 320, PAL.soft);
-  drawClock(&stage, 12, 6, "2:51", "am", "Sun 18 Oct", PAL.ink, PAL.dim, &FreeSansBold12pt7b, &FreeSans9pt7b);
   const char *status = m.w.status ? m.w.status : "";
   if (strncmp(status, shownStatus, sizeof shownStatus - 1) != 0) {
     strlcpy(shownStatus, status, sizeof shownStatus);
@@ -83,16 +85,29 @@ static void frame(uint32_t t, const Moment &m) {
 
   float gx = (m.f == THINKING || m.f == WORKING) ? 16 : (m.f == TALKING ? 8 : 0);
   float gy = (m.f == THINKING || m.f == WORKING) ? -12 : (m.f == TALKING ? -3 : 0);
-  Look k = {(int)homeX, m.f, (t % 3900) < 200 ? 0.1f : 1.0f, gx, gy, m.talk, m.f == LISTENING, 0, 0};
+  Look k = {(int)homeX, m.f, (t % 3900) < 200 ? 0.1f : 1.0f, gx, gy, m.talk, m.f == LISTENING, 0, 0, &QuicksandBold16};
   foPlaceFamyy(p, k);
   drawFamyy(&stage, t, k, PAL);
+  bool waiting = m.f == THINKING || m.f == WORKING;   // as femi.ino: busy, not talking, not recording
+  if (waiting != claudeOn) {
+    claudeOn = waiting;
+    if (waiting) claudeSince = t, claudeUntil = 0;
+    else claudeUntil = t;
+  }
+  int rx, ry;
+  famyyRoofTop(k, t, &rx, &ry);
+  drawClaude(&stage, t, claudePose(t, claudeOn, claudeSince, claudeUntil, p.phase != PH_NONE), rx, ry + 3, CLAUDE, PAL.ink);
   foDraw(&stage, t, p, m.task, PAL);
   drawWords(&stage, t, sc, side, text, n, BUBBLE);
 
   screen.fillScreen(PAL.bg);
-  Presence pres = m.f == LISTENING ? PRES_LISTENING : m.f == TALKING ? PRES_TALKING
-                : (m.f == THINKING || m.f == WORKING) ? PRES_THINKING : PRES_IDLE;
-  drawNameTag(&bar, t, pres, pres == PRES_TALKING, TAG);
+  const char *clock = "2:51 am   Sun 18 Oct";
+  bar.fillScreen(PAL.bg);
+  bar.setFont(&QuicksandMedium13);
+  bar.setTextColor(PAL.dim);
+  bar.setCursor((320 - textWidth(&QuicksandMedium13, clock, strlen(clock))) / 2, 15);
+  bar.print(clock);
+  bar.setFont(nullptr);
   screen.drawRGBBitmap(0, 0, bar.getBuffer(), 320, 22);
   screen.drawRGBBitmap(0, STAGE_Y, stage.getBuffer(), 320, STAGE_H);
   save();
