@@ -304,8 +304,8 @@ func TestVoicePipeline(t *testing.T) {
 		t.Fatalf("calls %+v", c)
 	}
 
-	// Over 15 s is capped.
-	audio(b, 20*32000, "max")
+	// Over the cap (32 s) is cut to it.
+	audio(b, 40*32000, "max")
 	if n := <-ears.got; n != maxAudioBytes {
 		t.Fatalf("stt got %d bytes, want cap %d", n, maxAudioBytes)
 	}

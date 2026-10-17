@@ -27,7 +27,7 @@ import (
 const SampleRate = 16000
 
 const (
-	maxAudioBytes = 15 * SampleRate * 2     // 15 s of pcm_s16le mono
+	maxAudioBytes = 32 * SampleRate * 2     // 32 s of pcm_s16le mono: the device sends at most 30 s
 	minAudioBytes = SampleRate * 2 * 3 / 10 // 0.3 s
 	lineMax       = 90                      // STATE line limit (shown in a speech bubble)
 	heardMax      = 300                     // longest transcript sent to the device in a "heard" command
@@ -235,7 +235,7 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 			if len(f.Payload) > room {
 				if !b.overflowed {
 					b.overflowed = true
-					b.logf("device: utterance longer than 15 s, keeping the first 15 s")
+					b.logf("device: utterance longer than %d s, keeping the first %d s", maxAudioBytes/(SampleRate*2), maxAudioBytes/(SampleRate*2))
 				}
 				b.audio = append(b.audio, f.Payload[:max(room, 0)]...)
 			} else {
