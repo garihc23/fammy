@@ -14,5 +14,5 @@ extern volatile int appReq;           // APP_* to start, APP_QUIT to leave, APP_
 extern volatile bool approvalOpen;    // an approval card is up: "yes" / "no" are answers
 extern volatile int voiceAnswer;      // a spoken answer to it: 1 yes, 0 no, -1 none yet
 extern volatile bool remindOpen;      // a reminder card is up: "done" acknowledges it (voiceAnswer = 1)
-extern volatile bool talkOpen;        // Famyy is working or talking: "Famyy stop" or "hey Famyy" can interrupt it
+extern volatile bool talkOpen;        // Famyy is working (not talking): "Famyy stop" or "hey Famyy" can interrupt it
 extern volatile int bargeIn;          // what was said to interrupt: 1 stop, 2 stop and listen, 0 nothing

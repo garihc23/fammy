@@ -127,10 +127,11 @@ void loop() {
   bool snapShown = v.snap && now - v.snapSince < 120000 && (!snapDoneAt || now - snapDoneAt < 10000);
   faceSetSnap(snapShown ? femiSnap() : nullptr, v.snapSince);
 
-  // while Famyy works or talks, listen for "Famyy stop" / "Famyy wait" or "hey Famyy" (and nothing else);
-  // cards and recordings manage the recogniser themselves
+  // while Famyy works (thinks, or Fo is out), listen for "Famyy stop" / "Famyy wait" or "hey Famyy" (and nothing
+  // else); cards and recordings manage the recogniser themselves. Not while Famyy talks: decoding its own long,
+  // continuous voice locked the chip up after 15-30 s (watchdog resets). A tap still stops it mid-sentence.
   bool working = v.busy || playerBusy();
-  bool interruptible = working && !voiceRecording() && !v.approve && !v.remind;
+  bool interruptible = working && !v.speaking && !playerBusy() && !voiceRecording() && !v.approve && !v.remind;
   if (interruptible && !talkOpen) {
     talkOpen = true;
     speechRearm();
