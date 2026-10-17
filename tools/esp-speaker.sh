@@ -22,6 +22,12 @@ off() {
 
 if [[ "${1:-on}" == off ]]; then off; exit; fi
 
+for _ in $(seq 20); do [[ -e "$PORT" ]] && break; sleep 0.5; done
+if [[ ! -e "$PORT" ]]; then
+  echo "The board isn't connected ($PORT missing): plug it into the socket marked USB and run this again."
+  exit 1
+fi
+
 # a virtual output called "Famyy-speaker"; new sounds go there while this runs
 pactl list short sinks | grep -q famyy || pactl load-module module-null-sink sink_name=famyy sink_properties=device.description=Famyy-speaker >/dev/null
 pactl set-default-sink famyy
