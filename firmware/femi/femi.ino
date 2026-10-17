@@ -127,7 +127,7 @@ void loop() {
   bool snapShown = v.snap && now - v.snapSince < 120000 && (!snapDoneAt || now - snapDoneAt < 10000);
   faceSetSnap(snapShown ? femiSnap() : nullptr, v.snapSince);
 
-  // while Famyy works or talks, listen for "stop", "wait" or "hey Famyy" (and nothing else);
+  // while Famyy works or talks, listen for "Famyy stop" / "Famyy wait" or "hey Famyy" (and nothing else);
   // cards and recordings manage the recogniser themselves
   bool working = v.busy || playerBusy();
   bool interruptible = working && !voiceRecording() && !v.approve && !v.remind;
@@ -332,7 +332,7 @@ void loop() {
   if (wasBusy && !busy) speechRearm();   // done answering: listen for "hey Famyy" again
   wasBusy = busy;
 
-  // a tap, or "stop" / "wait", while Famyy listens, thinks or talks stops it; "hey Famyy" stops it and listens
+  // a tap, or "Famyy stop" / "Famyy wait", while Famyy listens, thinks or talks stops it; "hey Famyy" stops it and listens
   int barge = bargeIn;
   bargeIn = 0;
   if (busy && timerPhase() != T_DONE && ((!app && touch.tapped) || (barge && !voiceRecording()))) {

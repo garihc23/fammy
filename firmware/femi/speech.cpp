@@ -5,11 +5,10 @@
 #include "voice.h"
 #include "clips.h"
 #include "net.h"
-#include "femi.h"
 
 enum {
   CMD_HAPPY, CMD_SLEEP, CMD_WAKE, CMD_MUSIC, CMD_STOP, CMD_THINK, CMD_HACK, CMD_NORMAL,
-  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY, CMD_YES, CMD_NO, CMD_DONE, CMD_HUSH, CMD_HUSH_NAMED,
+  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY, CMD_YES, CMD_NO, CMD_DONE, CMD_HUSH,
   CMD_NUM_FIRST   // number phrase k gets command id CMD_NUM_FIRST + k
 };
 
@@ -18,7 +17,7 @@ static const int NUMBERS[] = {1, 2, 3, 5, 10, 15, 20, 30, 45, 60};
 
 static const char *cmdNames[] = {
   "HAPPY", "SLEEP", "WAKE", "MUSIC", "STOP", "THINK", "HACK", "NORMAL",
-  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY", "YES", "NO", "DONE", "HUSH", "HUSH FAMYY"
+  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY", "YES", "NO", "DONE", "HUSH FAMYY"
 };
 
 // keep phrases short and distinct: long phrases and near-duplicates are missed or confused
@@ -74,13 +73,12 @@ static const sr_cmd_t commands[] = {
   {CMD_NO,        "no thanks"},
   {CMD_NO,        "cancel that"},
   {CMD_NO,        "do not"},
-  // interrupting Famyy while it talks or works: plain, and with its name (which its own voice won't say)
-  {CMD_HUSH,      "wait"},
-  {CMD_HUSH,      "hold on"},
-  {CMD_HUSH,      "wait a second"},
-  {CMD_HUSH_NAMED, "fammy stop"},
-  {CMD_HUSH_NAMED, "stop fammy"},
-  {CMD_HUSH_NAMED, "wait fammy"},
+  // interrupting Famyy while it talks or works: always with its name. Plain "stop" or "wait" come up
+  // all the time when people chat nearby, and Famyy's own replies say them too.
+  {CMD_HUSH,      "fammy stop"},
+  {CMD_HUSH,      "stop fammy"},
+  {CMD_HUSH,      "fammy wait"},
+  {CMD_HUSH,      "wait fammy"},
   // "I've done it", for a reminder
   {CMD_DONE,      "done"},
   {CMD_DONE,      "all done"},
@@ -148,14 +146,6 @@ static void onWake() {
   ESP_SR.setMode(SR_MODE_COMMAND);
 }
 
-// is Famyy's own reply saying this word right now? Then hearing it may just be its own voice.
-static bool replySays(const char *word) {
-  femiLock();
-  bool says = femiView().speaking && strcasestr(femiView().caption, word);
-  femiUnlock();
-  return says;
-}
-
 // runs in the speech task: only decide what to show and post requests, never draw here
 static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
   switch (event) {
@@ -171,9 +161,8 @@ static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
         ESP_SR.setMode(SR_MODE_COMMAND);
         break;
       }
-      if (talkOpen) {   // Famyy is working or talking: only "stop", "wait" or "hey Famyy" interrupt it, nothing else
-        bool plain = command_id == CMD_STOP || command_id == CMD_HUSH;
-        if (command_id == CMD_HUSH_NAMED || (plain && !replySays("stop") && !replySays("wait") && !replySays("hold"))) {
+      if (talkOpen) {   // Famyy is working or talking: only "Famyy stop" / "Famyy wait" or "hey Famyy" interrupt it
+        if (command_id == CMD_HUSH) {
           Serial.println(">> interrupted: stop");
           bargeIn = 1;
         } else if (command_id == CMD_HEY) {
@@ -191,8 +180,7 @@ static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
         ESP_SR.setMode(SR_MODE_COMMAND);
         break;
       }
-      if (command_id == CMD_YES || command_id == CMD_NO || command_id == CMD_DONE ||
-          command_id == CMD_HUSH || command_id == CMD_HUSH_NAMED) {   // nothing to answer or interrupt
+      if (command_id == CMD_YES || command_id == CMD_NO || command_id == CMD_DONE || command_id == CMD_HUSH) {   // nothing to answer or interrupt
         speechRearm();
         break;
       }
