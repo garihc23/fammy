@@ -459,7 +459,8 @@ func (b *Brain) textRequest(text string) {
 // tooShort: fewer than two letters or digits.
 // soundTags are the transcriber's notes for sounds that aren't words: "*ding*",
 // "[music]", "(coughs)". Whisper writes "foreign" for speech it can't read.
-var soundTags = regexp.MustCompile(`\*[^*]*\*|\[[^\]]*\]|\([^)]*\)|(?i)^\s*foreign[.!]?\s*$`)
+var soundTags = regexp.MustCompile(`\*[^*]*\*|\[[^\]]*\]|\([^)]*\)|` +
+	`(?i)^\s*(?:foreign|you|thanks for watching|thank you for watching)[.!]?\s*$`) // what Whisper writes for near-silence
 
 func tooShort(s string) bool {
 	s = soundTags.ReplaceAllString(s, "")
