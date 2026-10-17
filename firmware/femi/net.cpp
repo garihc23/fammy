@@ -60,6 +60,7 @@ static uint32_t remaining;
 static char json[1024];
 static uint32_t jsonGot;
 static uint32_t imageAt, imageBytes;
+static bool imageSnap;   // the image arriving is a camera snapshot (a polaroid), not a full-screen photo
 
 static void resetParser() {
   hdrGot = 0;
@@ -103,13 +104,21 @@ static void onCommand(const char *j) {
     FemiView &v = femiView();
     if (v.remind && (!id[0] || !strcmp(id, v.remindId))) v.remind = false;   // the loop then stops its bell and repeats
     femiUnlock();
-  } else if (!strcmp(type, "image")) {
-    imageBytes = min((uint32_t)jsonInt(j, "bytes", 0), (uint32_t)(PHOTO_W * PHOTO_H * 2));
+  } else if (!strcmp(type, "image")) {   // {"type":"image","kind":"snap","w":112,"h":84,"bytes":...,"caption":...}
+    char kind[12] = "";
+    jsonStr(j, "kind", kind, sizeof kind);
+    imageSnap = !strcmp(kind, "snap") && jsonInt(j, "w", 0) == SNAP_W && jsonInt(j, "h", 0) == SNAP_H;
+    imageBytes = min((uint32_t)jsonInt(j, "bytes", 0), (uint32_t)(imageSnap ? SNAP_W * SNAP_H * 2 : PHOTO_W * PHOTO_H * 2));
     imageAt = 0;
     femiLock();
     FemiView &v = femiView();
-    v.photo = false;   // the new one becomes visible once all its pixels have arrived
-    jsonStr(j, "caption", v.photoCaption, sizeof v.photoCaption);
+    if (imageSnap) {   // the new one shows once all its pixels have arrived
+      v.snap = false;
+      jsonStr(j, "caption", v.snapCaption, sizeof v.snapCaption);
+    } else {
+      v.photo = false;
+      jsonStr(j, "caption", v.photoCaption, sizeof v.photoCaption);
+    }
     femiUnlock();
   } else if (!strcmp(type, "timer")) {
     long minutes = jsonInt(j, "minutes", 0);
@@ -245,13 +254,18 @@ static bool pumpIncoming() {
     } else if (curType == F_IMAGE_CHUNK) {
       uint32_t room = imageBytes > imageAt ? imageBytes - imageAt : 0;
       uint32_t n = min((uint32_t)r, room);
-      memcpy((uint8_t *)femiPhoto() + imageAt, tmp, n);
+      memcpy((uint8_t *)(imageSnap ? femiSnap() : femiPhoto()) + imageAt, tmp, n);
       imageAt += n;
       if (imageBytes && imageAt >= imageBytes) {
         imageBytes = 0;
         femiLock();
-        femiView().photo = true;
-        femiView().photoSince = millis();
+        if (imageSnap) {
+          femiView().snap = true;
+          femiView().snapSince = millis();
+        } else {
+          femiView().photo = true;
+          femiView().photoSince = millis();
+        }
         femiUnlock();
         playerSfx(SFX_SHUTTER);
       }

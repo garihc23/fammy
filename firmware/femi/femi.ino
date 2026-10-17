@@ -111,6 +111,12 @@ void loop() {
   faceSetFo((FoState)v.foState, v.foCalledAt, v.foSince, (FoTask)v.foTask);
   faceSetLink(v.linkUp);
 
+  // the camera's snapshot, as a polaroid while the conversation about it goes on (and 30 s after)
+  static uint32_t lastTalk = 0;
+  if (v.busy || v.speaking) lastTalk = now;
+  bool snapShown = v.snap && now - v.snapSince < 180000 && now - lastTalk < 30000;
+  faceSetSnap(snapShown ? femiSnap() : nullptr, v.snapSince);
+
   // Claude on the roof, from the moment you stop talking until Famyy answers
   static bool claudeHere = false;
   bool claudeNow = v.busy && !v.speaking && !voiceRecording();

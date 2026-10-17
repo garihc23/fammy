@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "config.h"
 
 // What the brain has asked Femi to show, shared between the network task (writes) and loop() (reads).
 // Strings can't be read atomically, so access goes through femiLock()/femiUnlock(); loop() takes a copy.
@@ -37,6 +38,10 @@ struct FemiView {
   char listItems[640];            // items separated by '|'
   uint32_t listSince;
 
+  bool snap;                      // a camera snapshot is ready in femiSnap(): shown as a polaroid
+  uint32_t snapSince;
+  char snapCaption[48];
+
   uint8_t foState;                // FoState (fo.h): Fo on the stage
   uint8_t foTask;                 // FoTask: which job icon Fo works under
   uint32_t foCalledAt, foSince;   // when Fo was called; when it finished
@@ -49,6 +54,7 @@ void femiLock();
 void femiUnlock();
 FemiView &femiView();          // only touch while locked
 uint16_t *femiPhoto();          // PHOTO_W x PHOTO_H RGB565, filled by the network task
+uint16_t *femiSnap();           // SNAP_W x SNAP_H RGB565, likewise
 
 // tiny JSON readers for the brain's flat objects: {"type":"approve","id":"a1","text":"…"}
 bool jsonStr(const char *json, const char *key, char *out, size_t n);   // decodes escapes, folds to ASCII

@@ -26,6 +26,9 @@ const uint32_t FOCUS_MIN = 25, BREAK_MIN = 5;   // set both to 1 to test a whole
 const uint32_t DOZE_MIN = 10;   // fall asleep after this long with nothing happening
 const uint32_t EXIT_SHOW_MS = 800, EXIT_HOLD_MS = 2000;   // hold the touch pad this long to leave an app
 
+// the laptop camera's snapshot, as the brain sends it (RGB565)
+const int SNAP_W = 112, SNAP_H = 84;
+
 // what the face shows
 enum Face { IDLE, LISTENING, HAPPY, THINKING, SLEEPING, FOCUS, ALARM, ASKING, TALKING, WORKING };
 

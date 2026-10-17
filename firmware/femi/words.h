@@ -28,6 +28,7 @@ struct Scene {
   uint32_t statusSince;   // when the status line last changed
   float meter;            // listening loudness 0..1, or below 0 for no meter
   const char *say;        // a small remark for the top bubble, or nullptr
+  const uint16_t *snap;   // the camera's snapshot (SNAP_W x SNAP_H), or nullptr: a polaroid
 };
 
 enum Side { SIDE_NONE, SIDE_CLOUD, SIDE_SPEECH };   // the big bubble beside Famyy

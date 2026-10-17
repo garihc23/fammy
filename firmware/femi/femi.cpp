@@ -2,16 +2,18 @@
 
 static FemiView view;
 static SemaphoreHandle_t lock;
-static uint16_t *photo;
+static uint16_t *photo, *snap;
 
 void femiBegin() {
   lock = xSemaphoreCreateMutex();
   photo = (uint16_t *)ps_malloc(PHOTO_W * PHOTO_H * 2);
+  snap = (uint16_t *)ps_malloc(SNAP_W * SNAP_H * 2);
 }
 void femiLock() { xSemaphoreTake(lock, portMAX_DELAY); }
 void femiUnlock() { xSemaphoreGive(lock); }
 FemiView &femiView() { return view; }
 uint16_t *femiPhoto() { return photo; }
+uint16_t *femiSnap() { return snap; }
 
 // ---------- JSON ----------
 

@@ -94,6 +94,10 @@ static uint32_t nextGaze = 0, nextBlink = 2000, blinkStart = 0, nextGlitch = 400
 static uint32_t lastTerm = 0;
 static bool shownInvert = false, shownFps = false;
 
+// the camera's snapshot, while it's being talked about
+static const uint16_t *snapPixels = nullptr;
+static uint32_t snapAt = 0;
+
 // Claude on the roof: when Famyy started and stopped waiting on it
 static bool claudeOn = false;
 static uint32_t claudeSince = 0, claudeUntil = 0;
@@ -186,7 +190,7 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   float meter = f != LISTENING ? -1 : voiceRecording() ? constrain((log10f(max(voiceLevel(), 100)) - 2.3f) / 1.7f, 0.1f, 1.0f) : 0.6f;
 
   // Famyy steps aside for a big bubble, and back when it's gone
-  Scene sc = {f, &w, nullptr, (int)homeX, statusSince, meter, say};
+  Scene sc = {f, &w, nullptr, (int)homeX, statusSince, meter, say, snapPixels};
   FoPose p = foPose(t, foState, foCalledAt, foSince, (int)homeX);
   sc.p = &p;
   const char *text = nullptr;
@@ -206,6 +210,7 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   foDraw(c, t, p, foTask, pal, &QuicksandBold16);
   drawWords(c, t, sc, side, text, n, BubbleStyle{th->bubble, th->ink, th->ink, &QuicksandBold16});
   if (th->hacker && t < glitchUntil) glitch(c);
+  if (snapPixels && t - snapAt < 160) c->fillScreen(0xFFFF);   // the camera's flash
 
   tft.drawRGBBitmap(0, STAGE_Y, c->getBuffer(), 320, STAGE_H);
   stageShown = true;
@@ -371,6 +376,11 @@ void faceAppFrame(uint32_t now, const App &app, float exitHold) {
 }
 
 void faceSetLink(bool up) { linkUp = up; }
+
+void faceSetSnap(const uint16_t *pixels, uint32_t since) {
+  snapPixels = pixels;
+  snapAt = since;
+}
 
 void faceSetClaude(uint32_t now, bool on) {
   if (on == claudeOn) return;

@@ -33,6 +33,30 @@ Side sideWords(uint32_t t, const Scene &s, const char **text, int *n) {
   return SIDE_NONE;
 }
 
+// a polaroid of the camera's snapshot: a white frame, deeper at the bottom, a strip of tape on top.
+// step 2 shows it at half size (every other pixel)
+static void polaroid(GFXcanvas16 *c, int x, int y, const uint16_t *px, int step, const BubbleStyle &st) {
+  const uint16_t TAPE = 0xF71A;   // a pale, warm yellow
+  int w = SNAP_W / step, h = SNAP_H / step, b = step == 1 ? 6 : 3, foot = step == 1 ? 18 : 8;
+  c->fillRoundRect(x - b - 1, y - b - 1, w + 2 * b + 2, h + b + foot + 2, 3, st.ink);
+  c->fillRoundRect(x - b, y - b, w + 2 * b, h + b + foot, 2, 0xFFFF);
+  if (step == 1) {
+    c->drawRGBBitmap(x, y, (uint16_t *)px, w, h);
+  } else {
+    for (int yy = 0; yy < h; yy++)
+      for (int xx = 0; xx < w; xx++) c->drawPixel(x + xx, y + yy, px[yy * step * SNAP_W + xx * step]);
+  }
+  c->fillRect(x + w / 2 - 10 / step - 6, y - b - 5 / step - 2, 24 / step + 8, 9 / step + 3, TAPE);
+  if (step == 1) {   // a handwritten-looking note under the picture
+    c->setFont(st.font);
+    c->setTextColor(st.ink);
+    const char *note = "just now";
+    c->setCursor(x + (w - textWidth(st.font, note, strlen(note))) / 2, y + h + 15);
+    c->print(note);
+    c->setFont(nullptr);
+  }
+}
+
 // a one-line bubble at the top, its tail towards the chimney
 static void topBubble(GFXcanvas16 *c, int x, int w, int tailX, const BubbleStyle &st) {
   speechBubble(c, x, 8, w, 28, tailX, CHIMNEY_Y, st);
@@ -43,6 +67,13 @@ void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char
   const FoPose &p = *s.p;
   int hx = s.homeX;
   bool aside = hx < 120;   // big bubbles wait until Famyy has stepped aside
+  if (s.snap) {
+    if (side == SIDE_CLOUD && aside) {   // thinking about the photo: it takes the cloud's place
+      polaroid(c, 186, 16, s.snap, 1, st);
+      return;
+    }
+    polaroid(c, 8, 8, s.snap, 2, st);   // otherwise it stays small in the corner while the talk goes on
+  }
   if (side == SIDE_SPEECH && aside) {
     int h = max(bubbleHeight(st, text, n, SIDE_W, 7), 40);
     int bottom = MOUTH_Y + 16;

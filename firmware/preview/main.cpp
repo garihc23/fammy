@@ -6,6 +6,7 @@
 //   ./preview.sh shrug     the same when Fo couldn't do it
 //   ./preview.sh icons     Fo working on each kind of job
 //   ./preview.sh faces     every one of Famyy's moods
+//   ./preview.sh snap      "how am I looking?": the camera's flash, a polaroid, the answer
 #include <Adafruit_GFX.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include "../femi/QuicksandBold16.h"
@@ -56,6 +57,8 @@ struct Moment {
   Words w;
   float meter;              // listening loudness, or -1
   const char *say;
+  const uint16_t *snap = nullptr;   // the camera's snapshot, and when it arrived
+  uint32_t snapAt = 0;
 };
 
 static float homeX = HOME_X;
@@ -72,7 +75,7 @@ static void frame(uint32_t t, const Moment &m) {
     strlcpy(shownStatus, status, sizeof shownStatus);
     statusSince = t;
   }
-  Scene sc = {m.f, &m.w, nullptr, (int)homeX, statusSince, m.meter, m.say};
+  Scene sc = {m.f, &m.w, nullptr, (int)homeX, statusSince, m.meter, m.say, m.snap};
   FoPose p = foPose(t, m.fo, m.calledAt, m.foSince, (int)homeX);
   sc.p = &p;
   const char *text = nullptr;
@@ -98,6 +101,7 @@ static void frame(uint32_t t, const Moment &m) {
   drawClaude(&stage, t, claudePose(t, claudeOn, claudeSince, claudeUntil, p.phase != PH_NONE), rx, ry + 3, CLAUDE, PAL.ink);
   foDraw(&stage, t, p, m.task, PAL, &QuicksandBold16);
   drawWords(&stage, t, sc, side, text, n, BUBBLE);
+  if (m.snap && t - m.snapAt < 160) stage.fillScreen(0xFFFF);   // the camera's flash
 
   screen.fillScreen(PAL.bg);
   const char *clock = "2:51 am   Sun 18 Oct";
@@ -130,6 +134,28 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 9; i++)
       for (uint32_t t = i * 1000; t < i * 1000 + 1000; t += DT)
         frame(t, {all[i], all[i] == TALKING ? voice(t) : 0, FO_OFF, 0, 0, TASK_WEB, none, all[i] == LISTENING ? 0.7f : -1, says[i]});
+    return 0;
+  }
+  if (!strcmp(what, "snap")) {   // a stand-in photo (not a real camera picture): a person in a blue shirt
+    static GFXcanvas16 photo(SNAP_W, SNAP_H);
+    for (int y = 0; y < SNAP_H; y++) photo.drawFastHLine(0, y, SNAP_W, rgb565(210 - y, 200 - y / 2, 185));
+    photo.fillRoundRect(28, 52, 56, 40, 14, rgb565(60, 110, 190));    // shoulders
+    photo.fillCircle(56, 34, 17, rgb565(200, 150, 115));             // face
+    photo.fillRoundRect(38, 14, 36, 14, 7, rgb565(50, 35, 30));       // hair
+    photo.fillCircle(50, 34, 2, rgb565(40, 30, 25));
+    photo.fillCircle(62, 34, 2, rgb565(40, 30, 25));
+    const uint16_t *px = photo.getBuffer();
+    const char *heard = "How am I looking today?";
+    const char *reply = "You look great! That blue shirt really suits you and your hair is neat. "
+                        "Step a little closer to the light for an even brighter look.";
+    uint32_t heardAt = 1600, snapAt = 2300, talkAt = 5000, talkMs = 7000;
+    for (uint32_t t = 0; t < talkAt + talkMs + 2500; t += DT) {
+      const uint16_t *snap = t >= snapAt ? px : nullptr;
+      if (t < heardAt) frame(t, {LISTENING, 0, FO_OFF, 0, 0, TASK_WEB, none, 0.3f + 0.7f * fabsf(sinf(t / 300.0f)), nullptr});
+      else if (t < talkAt) frame(t, {THINKING, 0, FO_OFF, 0, 0, TASK_WEB, {heard, heardAt, heard, "", 0, 1}, -1, nullptr, snap, snapAt});
+      else if (t < talkAt + talkMs) frame(t, {TALKING, voice(t), FO_OFF, 0, 0, TASK_WEB, {heard, heardAt, "", reply, talkAt, talkMs}, -1, nullptr, snap, snapAt});
+      else frame(t, {IDLE, 0, FO_OFF, 0, 0, TASK_WEB, none, -1, nullptr, snap, snapAt});
+    }
     return 0;
   }
   if (!strcmp(what, "icons")) {   // two seconds of Fo at work on each kind of job
