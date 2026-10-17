@@ -193,7 +193,7 @@ func TestTextTurnStatesAndReply(t *testing.T) {
 		}
 	}
 	want := []string{
-		"thinking|> what's the weather in…",
+		"thinking|what's the weather in M…",
 		"working|Asking Fo…",
 		"working|Comparing sources and p…",
 	}
