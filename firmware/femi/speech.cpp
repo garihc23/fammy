@@ -2,10 +2,12 @@
 #include <ESP_SR.h>
 #include "speech.h"
 #include "shared.h"
+#include "voice.h"
+#include "net.h"
 
 enum {
   CMD_HAPPY, CMD_SLEEP, CMD_WAKE, CMD_MUSIC, CMD_STOP, CMD_THINK, CMD_HACK, CMD_NORMAL,
-  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE,
+  CMD_SET_TIMER, CMD_POMO, CMD_TCANCEL, CMD_TPAUSE, CMD_TRESUME, CMD_GAME, CMD_MORSE, CMD_HEY,
   CMD_NUM_FIRST   // number phrase k gets command id CMD_NUM_FIRST + k
 };
 
@@ -14,7 +16,7 @@ static const int NUMBERS[] = {1, 2, 3, 5, 10, 15, 20, 30, 45, 60};
 
 static const char *cmdNames[] = {
   "HAPPY", "SLEEP", "WAKE", "MUSIC", "STOP", "THINK", "HACK", "NORMAL",
-  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE"
+  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FEMI"
 };
 
 // keep phrases short and distinct: long phrases and near-duplicates are missed or confused
@@ -48,6 +50,9 @@ static const sr_cmd_t commands[] = {
   {CMD_MORSE,     "morse code"},
   {CMD_MORSE,     "learn morse"},
   {CMD_MORSE,     "teach me morse"},
+  // the wake phrase, when HEY_FEMI is on: the command recogniser listens for it all the time
+  {CMD_HEY,       "hey femi"},
+  {CMD_HEY,       "hi femi"},
   // numbers: reusable answers to any "how much / how long" question
   {CMD_NUM_FIRST + 0, "one"},
   {CMD_NUM_FIRST + 1, "two"},
@@ -75,6 +80,7 @@ public:
       size_t got = I2SClass::readBytes((char *)raw, chunk * 4) / 4;
       if (got == 0) break;
       for (size_t i = 0; i < got; i++) out[done + i] = (int16_t)constrain(raw[i] >> shift, -32768, 32767);
+      voiceFeed(out + done, got);   // also recorded for the brain while a request is being spoken
       done += got;
     }
     return done * 2;
@@ -83,17 +89,41 @@ public:
 
 static MicWithGain mic;
 
+// waiting for the wake phrase: the always-on command recogniser for "hey femi", or Espressif's "Hi ESP" model
+static sr_mode_t idleMode() { return HEY_FEMI ? SR_MODE_COMMAND : SR_MODE_WAKEWORD; }
+
+void speechPause() { ESP_SR.setMode(SR_MODE_OFF); }   // stop listening while Femi records, thinks and talks
+void speechRearm() { ESP_SR.setMode(idleMode()); }
+
+// woken up: with the brain connected, record the request for it; offline, fall back to local commands
+static void onWake() {
+  Serial.println(">> wake");
+  if (timerReq == REQ_NONE) timerReq = REQ_DISMISS;   // waking also silences a finished timer
+  if (netUp() && !voiceRecording() && !playerBusy()) {
+    speechPause();
+    if (!voiceStart("wake")) speechRearm();
+    return;
+  }
+  listening = true;
+  wanted = LISTENING;
+  ESP_SR.setMode(SR_MODE_COMMAND);
+}
+
 // runs in the speech task: only decide what to show and post requests, never draw here
 static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
   switch (event) {
-    case SR_EVENT_WAKEWORD:
-      Serial.println(">> wake word");
-      listening = true;
-      wanted = LISTENING;
-      if (timerReq == REQ_NONE) timerReq = REQ_DISMISS;   // "Hi ESP" also silences a finished timer
-      ESP_SR.setMode(SR_MODE_COMMAND);
+    case SR_EVENT_WAKEWORD:   // "Hi ESP" (only when HEY_FEMI is off)
+      onWake();
       break;
     case SR_EVENT_COMMAND:
+      if (command_id == CMD_HEY) {
+        onWake();
+        break;
+      }
+      if (!listening) {   // heard a command without the wake phrase first: ignore it
+        speechRearm();
+        break;
+      }
       if (command_id >= CMD_NUM_FIRST) {
         int n = NUMBERS[command_id - CMD_NUM_FIRST];
         Serial.printf(">> number: %d\n", n);
@@ -126,12 +156,12 @@ static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
       }
       ESP_SR.setMode(SR_MODE_COMMAND);   // follow-up window: keep listening
       break;
-    case SR_EVENT_TIMEOUT:
-      Serial.println(">> timeout");
+    case SR_EVENT_TIMEOUT:   // the command recogniser's window ran out: in HEY_FEMI mode it simply starts again
+      if (listening) Serial.println(">> timeout");
       listening = false;
       asking = ASK_NONE;
       if (wanted == LISTENING || wanted == ASKING) wanted = IDLE;
-      ESP_SR.setMode(SR_MODE_WAKEWORD);
+      speechRearm();
       break;
     default:
       break;
@@ -143,5 +173,5 @@ void speechBegin() {
   mic.setTimeout(1000);
   mic.begin(I2S_MODE_STD, 16000, I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
   ESP_SR.onEvent(onSrEvent);
-  ESP_SR.begin(mic, commands, sizeof(commands) / sizeof(sr_cmd_t), SR_CHANNELS_MONO, SR_MODE_WAKEWORD, "M");
+  ESP_SR.begin(mic, commands, sizeof(commands) / sizeof(sr_cmd_t), SR_CHANNELS_MONO, idleMode(), "M");
 }

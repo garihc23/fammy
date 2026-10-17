@@ -7,6 +7,11 @@ const int TFT_CS = 10, TFT_DC = 9, TFT_RST = 8, TFT_BLK = 14;
 const int SD_CS = 21;
 const int MIC_SCK = 4, MIC_WS = 5, MIC_SD = 6;           // I2S bus 0: INMP441 mic
 const int TOUCH_PIN = 2;                                 // capacitive touch pad
+const int AMP_BCLK = 15, AMP_LRC = 16, AMP_DIN = 7;      // I2S bus 1: MAX98357 amp
+
+// ---------- Femi ----------
+const bool HEY_FEMI = true;          // wake phrase "hey femi" (always-on command recogniser); false = Espressif's "Hi ESP"
+const float SPEAKER_VOLUME = 0.6f;   // 0..1 of full scale: the amp is loud
 
 // display speed: 10 MHz is safe on long jumper wires; try 20-40 MHz once the wires are short
 const uint32_t TFT_SPI_HZ = 40000000;
@@ -20,7 +25,7 @@ const uint32_t DOZE_MIN = 10;   // fall asleep after this long with nothing happ
 const uint32_t EXIT_SHOW_MS = 800, EXIT_HOLD_MS = 2000;   // hold the touch pad this long to leave an app
 
 // what the face shows
-enum Face { IDLE, LISTENING, HAPPY, THINKING, SLEEPING, FOCUS, ALARM, ASKING };
+enum Face { IDLE, LISTENING, HAPPY, THINKING, SLEEPING, FOCUS, ALARM, ASKING, TALKING, WORKING };
 
 // which question a spoken number answers
 enum Ask { ASK_NONE, ASK_TIMER };

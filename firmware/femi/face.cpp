@@ -4,6 +4,7 @@
 #include "face.h"
 #include "shared.h"
 #include "timer.h"
+#include "voice.h"
 
 struct Drop { int x; float y, v; };
 struct Theme {
@@ -112,7 +113,7 @@ static void drawBody(uint32_t t, Face f, float blink) {
   c->fillScreen(BG);
 
   // code rain: always on in hacking mode, brighter while thinking
-  if (f == THINKING || th == &HACKER) {
+  if (f == THINKING || f == WORKING || th == &HACKER) {
     c->setTextSize(1);
     for (auto &d : rain) {
       d.y += d.v;
@@ -132,12 +133,13 @@ static void drawBody(uint32_t t, Face f, float blink) {
           : (int)(breath * 2);
   int bw = BW, bh = (f == SLEEPING ? BH - 12 : BH) + (int)(breath * 2);
   int bx = cx - bw / 2, by = 104 + bob - bh / 2;
-  int ax = cx + (listening ? 0 : (int)(gazeX * 0.4f));
+  bool pinging = listening || f == WORKING;   // radar pings: listening to you, or Fo out doing something
+  int ax = cx + (pinging ? 0 : (int)(gazeX * 0.4f));
 
   // antenna, with radar pings while listening
   thickLine(c, cx, by, cx, by - 12, 3, th->ink);
   thickLine(c, cx, by - 12, ax, by - 22, 3, th->ink);
-  if (listening) {
+  if (pinging) {
     for (int i = 0; i < 2; i++) {
       float p = fmodf(t / 900.0f + i * 0.5f, 1.0f);
       int r = 7 + (int)(p * 22);
@@ -199,7 +201,12 @@ static void drawBody(uint32_t t, Face f, float blink) {
       c->fillRect(fx - 5, fy + 15, 10, 10, th->ink);
       c->fillRect(fx - 2, fy + 18, 4, 4, th->tint);
     }
-    if (f == THINKING) c->fillRect(fx + 2, fy + 18, 10, 4, th->ink);
+    if (f == THINKING || f == WORKING) c->fillRect(fx + 2, fy + 18, 10, 4, th->ink);
+    if (f == TALKING) {   // the mouth opens with the loudness of Femi's own voice
+      int open = constrain(playerLevel() / 350, 0, 12);
+      c->fillRect(fx - 8, fy + 16, 16, 4 + open, th->ink);
+      if (open > 3) c->fillRect(fx - 5, fy + 19, 10, open - 2, th->tint);
+    }
   }
   scanlines(c, sx, sy, sw, sh);
 
@@ -233,7 +240,7 @@ static void drawBody(uint32_t t, Face f, float blink) {
   tft.drawRGBBitmap(BODY_X, BODY_Y, c->getBuffer(), BODY_W, BODY_H);
 }
 
-static void drawTerm(uint32_t t, Face f) {
+static void drawTerm(uint32_t t, Face f, const char *termText) {
   GFXcanvas16 *c = term;
   char buf[32];
   const char *line = "";
@@ -253,8 +260,11 @@ static void drawTerm(uint32_t t, Face f) {
       case SLEEPING:  line = th->sleeping; break;
       case ALARM:     line = th->done; break;
       case ASKING:    line = th->ask; break;
+      case TALKING:
+      case WORKING:   line = ""; break;
     }
   }
+  if (termText && !timerLine) line = termText;
   c->fillScreen(BG);
   c->setTextSize(2);
   c->setTextColor(th->ink);
@@ -270,9 +280,10 @@ static void drawTerm(uint32_t t, Face f) {
       else            c->drawRect(222 + i * 12, 12, 9, 14, th->dim);
     }
   }
-  if (f == LISTENING) {   // sound-wave meter (decorative: the speech engine owns the mic)
+  if (f == LISTENING) {   // sound-wave meter: your real loudness while Femi records, otherwise decorative
+    float loud = voiceRecording() ? constrain((log10f(max(voiceLevel(), 100)) - 2.3f) / 1.7f, 0.1f, 1.0f) : 1.0f;
     for (int i = 0; i < 12; i++) {
-      int h = 3 + (int)(fabsf(sinf(t / 120.0f + i * 0.8f) * sinf(t / 330.0f + i)) * 16);
+      int h = 3 + (int)(fabsf(sinf(t / 120.0f + i * 0.8f) * sinf(t / 330.0f + i)) * 16 * loud);
       c->fillRect(220 + i * 8, 30 - h, 5, h, th->ink);
     }
   }
@@ -422,7 +433,7 @@ void faceAppFrame(uint32_t now, const App &app, float exitHold) {
   drawRec(now);
 }
 
-void faceFrame(uint32_t now, Face f) {
+void faceFrame(uint32_t now, Face f, const char *termText) {
   applyTheme();
   if (shownFps) {   // an app just ended: clear its frame-rate readout
     tft.fillRect(140, 4, 58, 14, BG);
@@ -446,7 +457,7 @@ void faceFrame(uint32_t now, Face f) {
     nextGaze = now + random(1200, 3700);
   }
   float gx = gazeTX, gy = gazeTY;
-  if (f == THINKING)                { gx = 16; gy = -12; }
+  if (f == THINKING || f == WORKING) { gx = 16; gy = -12; }
   if (f == ASKING)                  { gx = 10; gy = -8; }   // glancing up, waiting for your answer
   if (f == FOCUS)                   { gx = 0;  gy = 6; }    // eyes down on the work
   if (f == LISTENING || f == ALARM) { gx = 0;  gy = 0; }
@@ -460,10 +471,102 @@ void faceFrame(uint32_t now, Face f) {
 
   drawBody(now, f, blinkAmount(now));
   if (f != shownTermFace || now - lastTerm >= 100) {
-    drawTerm(now, f);
+    drawTerm(now, f, termText);
     lastTerm = now;
     shownTermFace = f;
   }
   drawStatusTimer(now);
   drawRec(now);
+}
+
+// ---------- Femi's screens ----------
+
+// word-wrap text into lines of at most maxChars, starting at row y; returns rows used
+static int drawWrapped(GFXcanvas16 *c, const char *text, int y, int size, int maxChars, int maxLines) {
+  const char *p = text;
+  int rows = 0;
+  while (*p && rows < maxLines) {
+    while (*p == ' ') p++;
+    int len = strlen(p), cut = min(len, maxChars);
+    if (len > maxChars) {   // break at the last space that fits
+      int sp = cut;
+      while (sp > 0 && p[sp] != ' ') sp--;
+      if (sp > 0) cut = sp;
+    }
+    char line[48];
+    snprintf(line, sizeof line, "%.*s", cut, p);
+    if (rows == maxLines - 1 && len > cut) {   // out of room: end with dots
+      int l = strlen(line);
+      strcpy(line + max(0, min(l, maxChars - 3)), "...");
+    }
+    c->setTextSize(size);
+    c->setCursor((c->width() - (int)strlen(line) * 6 * size) / 2, y + rows * 9 * size);
+    c->print(line);
+    p += cut;
+    rows++;
+  }
+  return rows;
+}
+
+static void drawHint(uint32_t now, const char *hint) {
+  term->fillScreen(BG);
+  term->setTextSize(2);
+  term->setTextColor(th->ink);
+  term->setCursor(8, 10);
+  term->print("> ");
+  term->print(hint);
+  if ((now / 500) % 2) term->print("_");
+  tft.drawRGBBitmap(0, TERM_Y, term->getBuffer(), 320, TERM_H);
+}
+
+void faceCardFrame(uint32_t now, bool urgent, const char *title, const char *text, const char *hint, float hold) {
+  applyTheme();
+  GFXcanvas16 *c = body;
+  c->fillScreen(BG);
+  uint16_t edge = urgent ? (((now / 500) % 2) ? th->warn : th->bad) : th->ink;   // reminders pulse
+  c->drawRoundRect(4, 4, BODY_W - 8, BODY_H - 8, 10, edge);
+  c->drawRoundRect(5, 5, BODY_W - 10, BODY_H - 10, 9, edge);
+  c->setTextColor(urgent ? th->warn : th->accent);
+  drawWrapped(c, title, 16, 2, 16, 1);
+  c->setTextColor(th->ink);
+  drawWrapped(c, text, 46, 2, 16, 5);
+  if (hold > 0) {   // holding the pad: how close to "no"
+    c->drawRect(14, BODY_H - 22, BODY_W - 28, 8, th->dim);
+    c->fillRect(14, BODY_H - 22, (int)((BODY_W - 28) * min(hold, 1.0f)), 8, th->bad);
+  }
+  tft.drawRGBBitmap(BODY_X, BODY_Y, c->getBuffer(), BODY_W, BODY_H);
+  if (now - lastTerm >= 100) {
+    drawHint(now, hint);
+    lastTerm = now;
+  }
+  shownTermFace = -1;   // the face's own terminal line repaints afterwards
+  drawStatusTimer(now);
+  drawRec(now);
+}
+
+void facePhotoFrame(uint32_t now, const uint16_t *pixels, const char *caption, bool fresh) {
+  if (!fresh) return;   // a photo is drawn once and then left alone
+  if (shownInvert) {
+    tft.invertDisplay(false);
+    shownInvert = false;
+  }
+  tft.drawRGBBitmap(0, 0, (uint16_t *)pixels, 320, 240);
+  if (caption && caption[0]) {   // caption on a dark band along the bottom
+    char line[27];
+    snprintf(line, sizeof line, "%s", caption);
+    tft.fillRect(0, 214, 320, 26, BG);
+    tft.setTextSize(2);
+    tft.setTextColor(th->ink);
+    tft.setCursor((320 - (int)strlen(line) * 12) / 2, 220);
+    tft.print(line);
+  }
+}
+
+void faceRepaint() {
+  tft.fillScreen(BG);
+  drawStatus();
+  shownTermFace = -1;
+  shownTimerKey = -2;
+  shownRec = !listening;
+  shownFps = false;
 }

@@ -1,0 +1,9 @@
+# Femi: one 6 MB app (Wi-Fi + speech + display need more than the stock 3 MB), no second OTA slot.
+# The speech models must stay at 0xC10000: the ESP SR upload setting writes srmodels.bin there.
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xe000,   0x2000,
+app0,     app,  ota_0,    0x10000,  0x600000,
+spiffs,   data, spiffs,   0x610000, 0x600000,
+model,    data, spiffs,   0xC10000, 0x3E0000,
+coredump, data, coredump, 0xFF0000, 0x10000,
