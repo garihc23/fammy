@@ -993,7 +993,7 @@ func (b *Brain) watchErrand(e *errand) {
 		"Tell the person the outcome in a sentence or two; if Fo needs an answer or an approval, ask for it.",
 		clip(e.asked, 200), status, text)
 	b.turnWith(ctx, "fo", msg, 0, func() {
-		_ = b.cfg.Device.Command(foCommand{Type: "fo", State: "back", OK: status != "failed", ID: e.id}) // Fo walks in with it
+		_ = b.cfg.Device.Command(foCommand{Type: "fo", State: "back", Task: e.task, OK: status != "failed", ID: e.id}) // Fo walks in with it
 	})
 }
 
