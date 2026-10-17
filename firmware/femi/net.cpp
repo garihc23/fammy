@@ -39,6 +39,22 @@ static void setUp(bool u) {
   Serial.println(u ? ">> brain connected" : ">> brain disconnected");
 }
 
+static const char *resetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  return "power-on";
+    case ESP_RST_EXT:      return "reset-pin";
+    case ESP_RST_SW:       return "software";
+    case ESP_RST_PANIC:    return "CRASH";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      return "HANG (watchdog)";
+    case ESP_RST_BROWNOUT: return "POWER DIP (brownout)";
+    case ESP_RST_USB:      return "usb (upload)";
+    case ESP_RST_JTAG:     return "jtag";
+    default:               return "other";
+  }
+}
+
 static bool writeFrame(uint8_t type, const void *p, uint32_t n) {
   uint8_t h[5] = {type, (uint8_t)n, (uint8_t)(n >> 8), (uint8_t)(n >> 16), (uint8_t)(n >> 24)};
   if (cli.write(h, 5) != 5) return false;
@@ -196,6 +212,11 @@ static void onControl(uint8_t type, const char *j) {
       FemiView &v = femiView();
       jsonStr(j, "text", v.caption, sizeof v.caption);
       v.speaking = v.caption[0] || bytes;   // an empty SAY means "say nothing": it only ends the turn
+      // an aside is spoken in the middle of something else and mustn't end it. The brain marks it; until every
+      // brain does, the ones it says today are known by their words
+      v.aside = jsonBool(j, "aside", false) || !strncmp(v.caption, "Reminder:", 9) || strstr(v.caption, "it's time for your") ||
+                !strcmp(v.caption, "Thank you, noted.") || !strncmp(v.caption, "One moment, I'm still on", 24);
+      v.busyBeforeAside = v.busy;
       v.busy = true;
       v.speakSince = now;
       v.speakMs = bytes ? bytes / 32 : max(2500u, (unsigned)strlen(v.caption) * 70);   // 32 bytes per ms at 16 kHz
@@ -307,7 +328,11 @@ static void netTask(void *) {
         continue;
       }
       cli.setNoDelay(true);
-      const char *hello = "{\"device\":\"famyy\",\"fw\":\"0.1\"}";
+      // why the chip last started (an upload, a crash, a power dip), how long ago, and its free memory: so a real
+      // crash shows up in the brain's log instead of looking like an upload
+      char hello[128];
+      snprintf(hello, sizeof hello, "{\"device\":\"famyy\",\"fw\":\"0.2\",\"reset\":\"%s\",\"up\":%lu,\"heap\":%lu}",
+               resetReason(), (unsigned long)(millis() / 1000), (unsigned long)ESP.getFreeHeap());
       writeFrame(F_HELLO, hello, strlen(hello));
       setUp(true);
     }

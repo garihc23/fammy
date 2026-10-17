@@ -102,7 +102,7 @@ void loop() {
   if (touch.tapped) playerSfx(SFX_TAP);  // a tiny tick under the finger, whatever the tap does
   FemiView v;
   femiLock();
-  if (femiView().foState == FO_WORKING && (femiView().speaking || !femiView().busy)) {
+  if (femiView().foState == FO_WORKING && ((femiView().speaking && !femiView().aside) || !femiView().busy)) {
     femiView().foState = FO_DONE;   // Famyy is answering (or the turn ended): Fo's job is over
     femiView().foSince = now;
   }
@@ -142,7 +142,7 @@ void loop() {
 
   // Claude on the roof, from the moment you stop talking until Famyy answers
   static bool claudeHere = false;
-  bool claudeNow = v.busy && !v.speaking && !voiceRecording();
+  bool claudeNow = v.busy && (!v.speaking || v.aside) && !voiceRecording();   // an aside doesn't end Claude's work
   if (claudeNow && !claudeHere) playerSfx(SFX_SPARK);
   claudeHere = claudeNow;
   faceSetClaude(now, claudeNow);

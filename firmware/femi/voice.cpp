@@ -403,8 +403,9 @@ static void playerTask(void *) {
       v.speaking = false;
       size_t len = strlen(v.caption);
       // keep the conversation going without the wake phrase when the brain says so (an older brain: after a question)
-      followUp = sayListen >= 0 ? sayListen == 1 : len > 0 && v.caption[len - 1] == '?';
-      v.busy = false;
+      followUp = !v.aside && (sayListen >= 0 ? sayListen == 1 : len > 0 && v.caption[len - 1] == '?');
+      v.busy = v.aside && v.busyBeforeAside;   // after an aside, whatever was going on carries on
+      v.aside = false;
       femiUnlock();
       char j[64];
       snprintf(j, sizeof j, "{\"type\":\"played\",\"id\":\"%s\"}", sayId);
