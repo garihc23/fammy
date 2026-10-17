@@ -366,7 +366,7 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	b.mu.Unlock()
 
 	b.logf("turn %d [%s] %q (stt %dms, session %q)", n, source, text, stt.Milliseconds(), session)
-	_ = b.cfg.Device.State("thinking", clip("> "+text, lineMax))
+	_ = b.cfg.Device.State("thinking", clip(text, lineMax)) // the device prints its own "> " prompt
 
 	tctx, cancel := context.WithTimeout(ctx, b.cfg.TurnTimeout)
 	defer cancel()

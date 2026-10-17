@@ -69,6 +69,10 @@ bool jsonStr(const char *json, const char *key, char *out, size_t n) {
     } else {
       cp = (uint8_t)*p++;
     }
+    if (cp == 0x2026) {   // an ellipsis becomes three dots
+      for (int k = 0; k < 3 && o + 1 < n; k++) out[o++] = '.';
+      continue;
+    }
     char ch = foldCodepoint(cp);
     if (ch) out[o++] = ch;
   }
