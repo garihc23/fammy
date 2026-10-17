@@ -210,9 +210,10 @@ func TestChildEnv(t *testing.T) {
 	in := []string{
 		"HOME=/home/x", "PATH=/bin", "CLAUDECODE=1", "CLAUDE_CODE_SESSION_ID=abc",
 		"CLAUDE_PID=1", "ANTHROPIC_BASE_URL=http://proxy", "ANTHROPIC_API_KEY=sk-test", "NOT_CLAUDE=ok",
+		"MCP_CONNECTION_NONBLOCKING=true",
 	}
 	got := childEnv(in)
-	want := []string{"HOME=/home/x", "PATH=/bin", "ANTHROPIC_API_KEY=sk-test", "NOT_CLAUDE=ok"}
+	want := []string{"HOME=/home/x", "PATH=/bin", "ANTHROPIC_API_KEY=sk-test", "NOT_CLAUDE=ok", "ENABLE_TOOL_SEARCH=false"}
 	if !slices.Equal(got, want) {
 		t.Errorf("childEnv = %v, want %v", got, want)
 	}

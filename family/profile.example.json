@@ -1,0 +1,49 @@
+{
+  "_about": "Copy to profile.json in this folder (FAMILY_DIR) and edit. It is loaded when femi-brain starts: everything except keys starting with _ is given to Claude as context, and every medication becomes a daily reminder. profile.json stays on this laptop (it is git-ignored).",
+  "_fields": {
+    "family": "how to refer to the household",
+    "home": "city or area, used for weather, news and bookings",
+    "notes": "anything Femi should always keep in mind",
+    "members[]": "name (what people call them), relation (to the family, e.g. grandmother, son, 8-year-old daughter), notes (age, likes, how to talk to them, contact names Fo knows them by)",
+    "medications[]": "who (a member name), time (HH:MM, 24-hour, local), what (medicine and dose, spoken aloud), escalate_to (optional: who Fo should text if the reminder is not tapped within FEMI_ACK_MINUTES, default 10)"
+  },
+  "family": "The Sharma family",
+  "home": "Bengaluru, India",
+  "notes": "Dinner is usually at 8 pm. Riya has school Monday to Friday.",
+  "members": [
+    {
+      "name": "Asha",
+      "relation": "grandmother",
+      "notes": "78. Everyone calls her Dadi. A little hard of hearing: speak slowly and clearly. Loves old Hindi songs and her garden."
+    },
+    {
+      "name": "Rahul",
+      "relation": "son, Asha's son and Riya's father",
+      "notes": "Software engineer, busy weekdays. In contacts as Rahul Sharma. Handles bookings and the family calendar."
+    },
+    {
+      "name": "Meera",
+      "relation": "Rahul's wife, Riya's mother",
+      "notes": "Doctor, often on night shifts. In contacts as Meera Sharma."
+    },
+    {
+      "name": "Riya",
+      "relation": "daughter, 8 years old",
+      "notes": "Loves space, dinosaurs and quizzes. Learning times tables and Morse code."
+    }
+  ],
+  "medications": [
+    {
+      "who": "Asha",
+      "time": "09:00",
+      "what": "Metformin 500 mg, with breakfast",
+      "escalate_to": "Rahul"
+    },
+    {
+      "who": "Asha",
+      "time": "21:00",
+      "what": "blood pressure tablet",
+      "escalate_to": "Rahul"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ brain/.env
 # personal family data stays on this laptop
 family/photos/
 family/profile.yaml
+family/profile.json
 # builds
 build/
 *.bin

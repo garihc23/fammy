@@ -170,7 +170,9 @@ func childEnv(environ []string) []string {
 		}
 		out = append(out, kv)
 	}
-	return out
+	// load MCP tool schemas up front instead of through a ToolSearch step: saves 2-5 s
+	// per turn and stops Claude guessing argument names before it has seen the schema
+	return append(out, "ENABLE_TOOL_SEARCH=false")
 }
 
 func resolveWorkDir(dir string) (string, error) {
