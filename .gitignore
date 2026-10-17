@@ -13,3 +13,5 @@ brain/femi-brain
 qa/voice/
 qa/recordings/
 firmware/preview/out/
+qa/serial/
+family/reminders.json

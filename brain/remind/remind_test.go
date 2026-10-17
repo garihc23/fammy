@@ -1,6 +1,7 @@
 package remind
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -142,5 +143,44 @@ func TestUnackedOnceExpires(t *testing.T) {
 	s.Tick(now.Add(2 * time.Hour))
 	if len(s.List()) != 0 {
 		t.Fatal("not expired")
+	}
+}
+
+// Reminders, medicines above all, must survive the brain restarting.
+func TestRemindersSurviveARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reminders.json")
+	now := time.Date(2026, 10, 18, 9, 0, 0, 0, time.Local)
+	a := New(time.Minute)
+	a.Path = path
+	med, _ := a.AddDaily("21:00", "Asha", "Metformin 500 mg", "Rahul", now)
+	once, _ := a.Add("in 5 minutes", "Drink water", Once, "", now)
+	a.Tick(now.Add(5 * time.Minute)) // the water reminder goes off and waits for a tap
+
+	b := New(time.Minute)
+	b.Path = path
+	if err := b.Load(); err != nil {
+		t.Fatal(err)
+	}
+	list := b.List()
+	if len(list) != 2 {
+		t.Fatalf("after a restart: %+v", list)
+	}
+	if list[0].ID != once.ID || !list[0].Pending || list[1].ID != med.ID || list[1].Clock != "21:00" || !list[1].Medication || list[1].EscalateTo != "Rahul" {
+		t.Errorf("reloaded reminders differ: %+v", list)
+	}
+	if r, _ := b.Add("in 1 minute", "Stretch", Once, "", now); r.ID != "r3" {
+		t.Errorf("ids must carry on after a restart, got %s", r.ID)
+	}
+	if _, ok := b.Ack(once.ID); !ok {
+		t.Fatal("the pending reminder couldn't be acknowledged after a restart")
+	}
+	c := New(time.Minute)
+	c.Path = path
+	c.Load()
+	if len(c.List()) != 2 { // medicine + stretch; the acknowledged one is gone
+		t.Errorf("the ack wasn't saved: %+v", c.List())
+	}
+	if err := New(time.Minute).Load(); err != nil {
+		t.Errorf("no path: %v", err)
 	}
 }

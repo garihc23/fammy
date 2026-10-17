@@ -115,6 +115,12 @@ func main() {
 	}
 
 	sched := remind.New(cfg.ackWindow)
+	sched.Path = filepath.Join(cfg.familyDir, "reminders.json") // reminders and medicines survive restarts
+	if err := sched.Load(); err != nil {
+		log.Printf("reminders: %v (starting with none)", err)
+	} else {
+		log.Printf("reminders: %d loaded from %s", len(sched.List()), sched.Path)
+	}
 	dev := &link.Server{Logf: log.Printf}
 	brain := femi.New(femi.Config{
 		Device:      dev,

@@ -2,7 +2,11 @@ package remind
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -38,6 +42,7 @@ type Scheduler struct {
 	AckWindow  time.Duration
 	OnFire     func(Reminder)
 	OnEscalate func(Reminder)
+	Path       string // optional: every change is saved here, so reminders (medicines!) survive a restart; see Load
 
 	mu    sync.Mutex
 	items map[string]*Reminder
@@ -91,7 +96,63 @@ func (s *Scheduler) insert(r Reminder) Reminder {
 	s.next++
 	r.ID = fmt.Sprintf("r%d", s.next)
 	s.items[r.ID] = &r
+	s.saveLocked()
 	return r
+}
+
+// saved is the file format.
+type saved struct {
+	Next  int        `json:"next"`
+	Items []Reminder `json:"items"`
+}
+
+// Load reads the reminders saved at Path. A missing file is not an error.
+// Reminders that came due while the brain was off go off at the next Tick.
+func (s *Scheduler) Load() error {
+	if s.Path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(s.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var f saved
+	if err := json.Unmarshal(data, &f); err != nil {
+		return fmt.Errorf("%s: %w", s.Path, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.next = f.Next
+	for i := range f.Items {
+		r := f.Items[i]
+		s.items[r.ID] = &r
+	}
+	return nil
+}
+
+// saveLocked writes all reminders to Path (atomically); s.mu must be held.
+func (s *Scheduler) saveLocked() {
+	if s.Path == "" {
+		return
+	}
+	f := saved{Next: s.next}
+	for _, r := range s.items {
+		f.Items = append(f.Items, *r)
+	}
+	sort.Slice(f.Items, func(i, j int) bool { return f.Items[i].ID < f.Items[j].ID })
+	data, _ := json.MarshalIndent(f, "", "  ")
+	tmp, err := os.CreateTemp(filepath.Dir(s.Path), ".reminders-*")
+	if err != nil {
+		return
+	}
+	if _, err := tmp.Write(data); err != nil || tmp.Close() != nil {
+		os.Remove(tmp.Name())
+		return
+	}
+	os.Rename(tmp.Name(), s.Path)
 }
 
 // List returns all reminders, soonest first (pending ones first of all).
@@ -135,6 +196,7 @@ func (s *Scheduler) Cancel(id string) (Reminder, bool) {
 		return Reminder{}, false
 	}
 	delete(s.items, r.ID)
+	s.saveLocked()
 	return *r, true
 }
 
@@ -152,6 +214,7 @@ func (s *Scheduler) Ack(id string) (Reminder, bool) {
 	if r.Repeat == Once {
 		delete(s.items, id)
 	}
+	s.saveLocked()
 	return out, true
 }
 
@@ -164,6 +227,7 @@ func (s *Scheduler) expireAfter() time.Duration {
 // Tick fires due reminders and escalates unacknowledged ones.
 func (s *Scheduler) Tick(now time.Time) {
 	var fire, escalate []Reminder
+	changed := false
 	s.mu.Lock()
 	for id, r := range s.items {
 		if r.Pending && !r.Escalated && r.EscalateTo != "" && now.Sub(r.FiredAt) >= s.AckWindow {
@@ -172,6 +236,7 @@ func (s *Scheduler) Tick(now time.Time) {
 		}
 		if r.Repeat == Once && r.At.IsZero() && r.Pending && now.Sub(r.FiredAt) >= s.expireAfter() {
 			delete(s.items, id)
+			changed = true
 			continue
 		}
 		if !r.At.IsZero() && !now.Before(r.At) {
@@ -183,7 +248,11 @@ func (s *Scheduler) Tick(now time.Time) {
 				r.At = time.Time{}
 			}
 			fire = append(fire, *r)
+			changed = true
 		}
+	}
+	if changed || len(escalate) > 0 {
+		s.saveLocked()
 	}
 	s.mu.Unlock()
 	sort.Slice(fire, func(i, j int) bool { return fire[i].ID < fire[j].ID })
