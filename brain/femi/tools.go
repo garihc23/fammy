@@ -184,8 +184,20 @@ func (b *Brain) Tools() []mcp.Tool {
 			},
 		},
 		{
-			Name:        "cancel_reminder",
-			Description: "Cancel a reminder or medicine schedule by its id (get ids from list_reminders).",
+			Name: "acknowledge_reminder",
+			Description: "Confirm that a reminder which went off has been done, the same as tapping its card: use it when someone " +
+				"says they took the medicine, drank the water, or otherwise did it. Stops the repeat chimes and the text to family. " +
+				"Daily schedules stay in place. Leave id empty when only one reminder is waiting (the time stamp lists them).",
+			InputSchema: object(map[string]any{"id": str("Reminder id, e.g. \"r1\"; empty for the only one waiting.")}),
+			Handle: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				id, _ := soleString(raw, "id")
+				return b.AcknowledgeReminder(id)
+			},
+		},
+		{
+			Name: "cancel_reminder",
+			Description: "Cancel a reminder or medicine schedule by its id (get ids from list_reminders). This removes it for good, " +
+				"including a daily medicine: only when someone asks to stop or delete it. To confirm a reminder was done, use acknowledge_reminder.",
 			InputSchema: object(map[string]any{"id": str("Reminder id, e.g. \"r3\".")}, "id"),
 			Handle: func(ctx context.Context, raw json.RawMessage) (string, error) {
 				id, err := soleString(raw, "id")

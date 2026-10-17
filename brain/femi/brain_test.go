@@ -510,7 +510,7 @@ func TestReminderFireAckAndEscalate(t *testing.T) {
 	}
 
 	list, _ := tools["list_reminders"](context.Background(), json.RawMessage(`{}`))
-	if !strings.Contains(list, med.ID+": Asha, Metformin 500 mg — went off at 09:30, waiting for a tap") {
+	if !strings.Contains(list, med.ID+": Asha, Metformin 500 mg — went off at 09:30, waiting to be confirmed") {
 		t.Fatalf("list = %q", list)
 	}
 	if msg, err := tools["cancel_reminder"](context.Background(), json.RawMessage(`{"id":"`+med.ID+`"}`)); err != nil || !strings.Contains(msg, "Cancelled") {
@@ -563,7 +563,7 @@ func TestDeviceCommandTools(t *testing.T) {
 	if _, err := tools["set_theme"](context.Background(), json.RawMessage(`{"name":"normal"}`)); err == nil {
 		t.Fatal("no device: expected error")
 	}
-	if len(ToolNames()) != 11 {
+	if len(ToolNames()) != 12 {
 		t.Fatalf("ToolNames = %v", ToolNames())
 	}
 }
@@ -787,5 +787,44 @@ func TestDropLoops(t *testing.T) {
 		if got := dropLoops(in); got != want {
 			t.Errorf("dropLoops(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestAcknowledgeReminderByVoice(t *testing.T) {
+	now := time.Date(2026, 10, 18, 9, 0, 0, 0, time.Local)
+	var seen []string
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		seen = append(seen, text)
+		return Result{Reply: "Well done!"}, nil
+	}}
+	b, dev := newBrain(t, th, func(c *Config) { c.Now = func() time.Time { return now } })
+	sched := b.cfg.Reminders
+	if out, _ := b.AcknowledgeReminder(""); out != "Nothing is waiting to be confirmed right now." {
+		t.Errorf("nothing waiting: %q", out)
+	}
+	med, _ := sched.AddDaily("09:30", "Asha", "Metformin 500 mg", "Rahul", now)
+	sched.Tick(time.Date(2026, 10, 18, 9, 30, 0, 0, time.Local))
+	dev.waitFor(t, "medicine spoken", isSay("Asha, it's time for your Metformin 500 mg."))
+
+	// the turn is told what is waiting
+	b.DeviceFrame(textEvent("I have taken my medicine"))
+	dev.waitFor(t, "reply", isSay("Well done!"))
+	if len(seen) != 1 || !strings.Contains(seen[0], "waiting to be confirmed: "+med.ID+" Asha: Metformin 500 mg (went off 09:30)") {
+		t.Errorf("turn text %q lacks the waiting reminder", seen)
+	}
+
+	out, err := b.AcknowledgeReminder("")
+	if err != nil || !strings.Contains(out, "Confirmed: Metformin 500 mg (Asha). It stays scheduled daily at 09:30") {
+		t.Fatalf("acknowledge = %q, %v", out, err)
+	}
+	dev.waitFor(t, "card closed", func(r rec) bool {
+		return r.Kind == "command" && r.Command["type"] == "reminder_done" && r.Command["id"] == med.ID
+	})
+	if len(sched.Pending()) != 0 || len(sched.List()) != 1 {
+		t.Errorf("after the ack: pending %v, list %v (the daily schedule must stay)", sched.Pending(), sched.List())
+	}
+	sched.Tick(time.Date(2026, 10, 18, 9, 45, 0, 0, time.Local)) // past the ack window: no text to Rahul
+	if _, err := b.AcknowledgeReminder(med.ID); err == nil {
+		t.Error("acknowledged twice")
 	}
 }

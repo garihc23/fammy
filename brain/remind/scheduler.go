@@ -223,7 +223,7 @@ func Describe(r Reminder, now time.Time) string {
 	b.WriteString(r.Text)
 	switch {
 	case r.Pending:
-		fmt.Fprintf(&b, " — went off at %s, waiting for a tap", r.FiredAt.Format("15:04"))
+		fmt.Fprintf(&b, " — went off at %s, waiting to be confirmed", r.FiredAt.Format("15:04"))
 		if r.Repeat == Daily {
 			fmt.Fprintf(&b, " (daily at %s)", r.Clock)
 		}

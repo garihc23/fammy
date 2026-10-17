@@ -493,7 +493,7 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 		}
 	}
 	start := time.Now()
-	stamped := fmt.Sprintf("[%s] %s", now.Format("Mon 2 Jan 2006, 15:04"), text)
+	stamped := fmt.Sprintf("[%s%s] %s", now.Format("Mon 2 Jan 2006, 15:04"), b.waitingNote(), text)
 	res, err := b.cfg.Thinker.Think(tctx, session, stamped, onEvent)
 	took := time.Since(start)
 	b.flushStates()
@@ -826,6 +826,68 @@ func (b *Brain) ack(id string) {
 	b.logf("reminder %s acknowledged", r.ID)
 	_ = b.cfg.Device.State("happy", "Noted")
 	b.speakPhrase(context.Background(), MsgNoted)
+}
+
+// waitingNote tells Claude, inside the time stamp, which reminders went off
+// and are still waiting to be confirmed, so "I've taken it" can confirm one.
+func (b *Brain) waitingNote() string {
+	if b.cfg.Reminders == nil {
+		return ""
+	}
+	var parts []string
+	for _, r := range b.cfg.Reminders.Pending() {
+		what := r.Text
+		if r.Who != "" {
+			what = r.Who + ": " + r.Text
+		}
+		parts = append(parts, fmt.Sprintf("%s %s (went off %s)", r.ID, what, r.FiredAt.Format("15:04")))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " | waiting to be confirmed: " + strings.Join(parts, "; ")
+}
+
+// AcknowledgeReminder confirms a reminder that went off, the spoken way of
+// tapping its card: id "" picks the only one waiting. The device closes the card.
+func (b *Brain) AcknowledgeReminder(id string) (string, error) {
+	if b.cfg.Reminders == nil {
+		return "", errors.New("reminders aren't available")
+	}
+	if id = strings.TrimSpace(id); id == "" {
+		waiting := b.cfg.Reminders.Pending()
+		switch len(waiting) {
+		case 0:
+			return "Nothing is waiting to be confirmed right now.", nil
+		case 1:
+			id = waiting[0].ID
+		default:
+			var ids []string
+			for _, r := range waiting {
+				ids = append(ids, remind.Describe(r, b.cfg.Now()))
+			}
+			return "", fmt.Errorf("several reminders are waiting; ask which one and pass its id:\n%s", strings.Join(ids, "\n"))
+		}
+	}
+	r, ok := b.cfg.Reminders.Ack(id)
+	if !ok {
+		return "", fmt.Errorf("reminder %q isn't waiting to be confirmed; call list_reminders to see what is", id)
+	}
+	b.logf("reminder %s acknowledged by voice", r.ID)
+	b.commandAsync(reminderDoneCmd{Type: "reminder_done", ID: r.ID})
+	out := "Confirmed: " + r.Text
+	if r.Who != "" {
+		out += " (" + r.Who + ")"
+	}
+	if r.Repeat == remind.Daily {
+		out += fmt.Sprintf(". It stays scheduled daily at %s", r.Clock)
+	}
+	return out + ".", nil
+}
+
+type reminderDoneCmd struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
 }
 
 func (b *Brain) reminderUnacked(r remind.Reminder) {

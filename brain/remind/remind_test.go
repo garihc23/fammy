@@ -117,7 +117,7 @@ func TestSchedulerFireAckEscalate(t *testing.T) {
 	if len(list) != 1 || !list[0].Pending || !list[0].At.Equal(time.Date(2026, 10, 18, 16, 45, 0, 0, loc)) {
 		t.Fatalf("daily not rescheduled: %+v", list)
 	}
-	if d := Describe(list[0], at(16, 56)); !strings.Contains(d, "waiting for a tap") || !strings.Contains(d, "Rahul") {
+	if d := Describe(list[0], at(16, 56)); !strings.Contains(d, "waiting to be confirmed") || !strings.Contains(d, "Rahul") {
 		t.Fatalf("describe: %s", d)
 	}
 	if _, ok := s.Ack(med.ID); !ok {
