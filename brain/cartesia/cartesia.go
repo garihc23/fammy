@@ -59,6 +59,10 @@ const (
 	// accent, which suits an Indian family. Famyy's voice, picked by the team.
 	VoiceArushi = "95d51f79-c397-46f9-b49a-23763d3eaa2d"
 
+	// VoiceDev is Cartesia's "Dev": a warm, conversational Hindi male voice. It
+	// reads the other side of a phone call back (Fo's side is Jacqueline).
+	VoiceDev = "910fb75e-1d20-4840-ac63-ac6b26a71bdc"
+
 	// DefaultVoiceID is the voice used by New.
 	DefaultVoiceID = VoiceArushi
 
@@ -356,4 +360,11 @@ func wavBytes(pcm []byte, rate int) []byte {
 	copy(out[36:40], "data")
 	le.PutUint32(out[40:44], uint32(len(pcm)))
 	return append(out, pcm...)
+}
+
+// SpeakAs is Speak in another voice, e.g. each side of a phone call read back.
+func (c *Client) SpeakAs(ctx context.Context, voiceID, text string, sampleRate int) ([]byte, error) {
+	cc := *c
+	cc.VoiceID = voiceID
+	return cc.Speak(ctx, text, sampleRate)
 }

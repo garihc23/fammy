@@ -243,14 +243,18 @@ func (s *Server) Command(v any) error { return s.sendJSON(TypeCommand, v) }
 // Say sends SAY_START (caption + total bytes), the pcm in ChunkSize pieces,
 // then SAY_END. pcm may be empty (caption only). If ctx is cancelled midway
 // the remaining audio is dropped and SAY_END is still sent.
-func (s *Server) Say(ctx context.Context, id, text string, pcm []byte) error {
-	// "bytes" goes before the free text: the device parses control frames
-	// from a fixed-size buffer, so a very long caption must not push it out.
+func (s *Server) Say(ctx context.Context, id, text string, pcm []byte, listen bool) error {
+	if err := ctx.Err(); err != nil { // stopped before it started: say nothing at all
+		return err
+	}
+	// "bytes" and "listen" go before the free text: the device parses control
+	// frames from a fixed-size buffer, so a very long caption must not push them out.
 	start, err := json.Marshal(struct {
-		ID    string `json:"id"`
-		Bytes int    `json:"bytes"`
-		Text  string `json:"text"`
-	}{id, len(pcm), text})
+		ID     string `json:"id"`
+		Bytes  int    `json:"bytes"`
+		Listen bool   `json:"listen"` // listen for a reply afterwards, without the wake phrase
+		Text   string `json:"text"`
+	}{id, len(pcm), listen, text})
 	if err != nil {
 		return err
 	}

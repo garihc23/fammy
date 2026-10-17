@@ -247,6 +247,55 @@ func (b *Brain) Tools() []mcp.Tool {
 			},
 		},
 		{
+			Name: "show_list",
+			Description: "Show a short list on Famyy's screen until it is tapped: up to 8 rows of about 24 characters, " +
+				"e.g. recent calls (\"Sun 1:44  The Lalit\"), reminders or options to choose from. Say a one-line summary; " +
+				"don't read the whole list out.",
+			InputSchema: object(map[string]any{
+				"title": str("Heading, under 24 characters, e.g. \"Recent calls\"."),
+				"items": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "The rows, most important first; each under 24 characters."},
+			}, "title", "items"),
+			Handle: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				var a struct {
+					Title string   `json:"title"`
+					Items []string `json:"items"`
+				}
+				if err := decodeArgs(raw, &a); err != nil {
+					return "", err
+				}
+				return b.ShowList(a.Title, a.Items)
+			},
+		},
+		{
+			Name: "replay_call",
+			Description: "Play a phone call Fo made back through Famyy's speaker, read from its transcript in two voices " +
+				"(Fo's side and the other person's). Get the transcript with get_fo_conversation first (calls are Fo " +
+				"conversations with channel \"voice\") and pass its turns in order: role \"assistant\" is speaker \"fo\", " +
+				"role \"user\" is speaker \"other\". Keep their words as they are; skip empty lines. Returns as soon as it " +
+				"starts playing; then reply with one very short line only.",
+			InputSchema: object(map[string]any{
+				"title": str("Who was called, e.g. \"The Lalit\"."),
+				"lines": map[string]any{
+					"type":        "array",
+					"description": "The call, in order (at most 40 lines).",
+					"items": object(map[string]any{
+						"speaker": enum("Who said it.", "fo", "other"),
+						"text":    str("What they said."),
+					}, "speaker", "text"),
+				},
+			}, "title", "lines"),
+			Handle: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				var a struct {
+					Title string     `json:"title"`
+					Lines []CallLine `json:"lines"`
+				}
+				if err := decodeArgs(raw, &a); err != nil {
+					return "", err
+				}
+				return b.ReplayCall(ctx, a.Title, a.Lines)
+			},
+		},
+		{
 			Name:        "set_theme",
 			Description: "Change Femi's screen theme: \"normal\" (friendly face) or \"hacker\" (green-on-black terminal look).",
 			InputSchema: object(map[string]any{"name": enum("Which theme.", "normal", "hacker")}, "name"),

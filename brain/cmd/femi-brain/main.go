@@ -122,6 +122,8 @@ func main() {
 		Profile:     profile,
 		FamilyDir:   cfg.familyDir,
 		RecordDir:   filepath.Join(filepath.Dir(brainDir), "qa", "recordings"),
+		FoVoice:     cartesia.VoiceJacqueline,
+		CallVoice:   cartesia.VoiceDev,
 		TurnTimeout: turnBudget + 30*time.Second,
 	})
 	dev.Handler = brain

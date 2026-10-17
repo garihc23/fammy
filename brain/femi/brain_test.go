@@ -28,6 +28,7 @@ type rec struct {
 	ID      string
 	Text    string
 	Bytes   int
+	Listen  bool
 	Command map[string]any
 }
 
@@ -61,8 +62,8 @@ func (d *fakeDevice) Connected() bool {
 func (d *fakeDevice) State(face, line string) error {
 	return d.add(rec{Kind: "state", Face: face, Line: line})
 }
-func (d *fakeDevice) Say(ctx context.Context, id, text string, pcm []byte) error {
-	return d.add(rec{Kind: "say", ID: id, Text: text, Bytes: len(pcm)})
+func (d *fakeDevice) Say(ctx context.Context, id, text string, pcm []byte, listen bool) error {
+	return d.add(rec{Kind: "say", ID: id, Text: text, Bytes: len(pcm), Listen: listen})
 }
 func (d *fakeDevice) Command(v any) error {
 	raw, _ := json.Marshal(v)
@@ -562,7 +563,7 @@ func TestDeviceCommandTools(t *testing.T) {
 	if _, err := tools["set_theme"](context.Background(), json.RawMessage(`{"name":"normal"}`)); err == nil {
 		t.Fatal("no device: expected error")
 	}
-	if len(ToolNames()) != 9 {
+	if len(ToolNames()) != 11 {
 		t.Fatalf("ToolNames = %v", ToolNames())
 	}
 }
@@ -599,6 +600,29 @@ func TestFoTask(t *testing.T) {
 	}
 }
 
+func TestKeepListening(t *testing.T) {
+	for _, c := range []struct {
+		request, reply string
+		want           bool
+	}{
+		{"what's the weather?", "Sunny and 28 degrees.", true},
+		{"thanks", "You're welcome!", false},
+		{"Thank you, Famyy.", "Anytime.", false},
+		{"okay that's all", "Alright.", false},
+		{"no", "Okay, I won't.", false},
+		{"stop", "Stopping.", false},
+		{"stop the timer", "Timer stopped.", true},
+		{"no, call Flute instead", "Calling Flute.", true},
+		{"you can go to sleep for now", "Okay.", false},
+		{"tell me a joke", "Why did the cat sit on the laptop? Bye for now!", false},
+		{"say bye to grandma for me", "I'll text her.", true},
+	} {
+		if got := keepListening(c.request, c.reply); got != c.want {
+			t.Errorf("keepListening(%q, %q) = %v, want %v", c.request, c.reply, got, c.want)
+		}
+	}
+}
+
 func TestHeardCommandPrecedesThinkingState(t *testing.T) {
 	long := strings.Repeat("please find me a good salon near the office ", 10) // ~440 characters
 	b, dev := newBrain(t, replyThinker("ok"), nil)
@@ -628,5 +652,107 @@ func TestHeardCommandPrecedesThinkingState(t *testing.T) {
 	raw, _ := json.Marshal(heardCommand{Type: "heard", Text: "hi"})
 	if string(raw) != `{"type":"heard","text":"hi"}` {
 		t.Errorf("key order: %s", raw)
+	}
+}
+
+func TestReplyListensUnlessDone(t *testing.T) {
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		return Result{Reply: fmt.Sprintf("Reply %d", n), SessionID: "s"}, nil
+	}}
+	b, dev := newBrain(t, th, nil)
+	b.DeviceFrame(textEvent("what's up"))
+	if r := dev.waitFor(t, "reply 1", isSay("Reply 1")); !r.Listen {
+		t.Error("a normal reply should keep listening")
+	}
+	b.DeviceFrame(textEvent("thanks, that's all"))
+	if r := dev.waitFor(t, "reply 2", isSay("Reply 2")); r.Listen {
+		t.Error("after \"that's all\" Famyy should stop listening")
+	}
+}
+
+func TestStopDropsTheTurn(t *testing.T) {
+	started := make(chan struct{})
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		close(started)
+		<-ctx.Done() // a long Fo errand
+		return Result{SessionID: "s"}, ctx.Err()
+	}}
+	b, dev := newBrain(t, th, nil)
+	b.DeviceFrame(textEvent("call all the restaurants"))
+	<-started
+	b.DeviceFrame(link.Frame{Type: link.TypeEvent, Payload: []byte(`{"type":"stop"}`)})
+	// the turn slot frees up, and nothing is said about it
+	deadline := time.Now().Add(3 * time.Second)
+	for !b.tryTurn() {
+		if time.Now().After(deadline) {
+			t.Fatal("the stopped turn still holds the turn slot")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	b.endTurn()
+	for _, r := range dev.all() {
+		if r.Kind == "say" {
+			t.Errorf("said %q after a stop", r.Text)
+		}
+	}
+}
+
+func TestQuietFollowUpMiss(t *testing.T) {
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		return Result{Reply: "hi"}, nil
+	}}
+	b, dev := newBrain(t, th, func(c *Config) { c.Ears = fakeEars{text: "*ding*", got: make(chan int, 10)} })
+	pcm := make([]byte, minAudioBytes*2)
+	for _, trigger := range []string{"followup", "wake"} {
+		b.DeviceFrame(link.Frame{Type: link.TypeAudioStart, Payload: []byte(`{"rate":16000,"trigger":"` + trigger + `"}`)})
+		b.DeviceFrame(link.Frame{Type: link.TypeAudioChunk, Payload: pcm})
+		b.DeviceFrame(link.Frame{Type: link.TypeAudioEnd, Payload: []byte(`{"reason":"silence"}`)})
+		if trigger == "followup" {
+			dev.waitFor(t, "idle after an empty follow-up", func(r rec) bool { return r.Kind == "state" && r.Face == "idle" })
+			for _, r := range dev.all() {
+				if r.Kind == "say" {
+					t.Fatalf("an empty follow-up said %q", r.Text)
+				}
+			}
+		}
+	}
+	if r := dev.waitFor(t, "didn't catch", isSay(MsgDidntCatch)); !r.Listen {
+		t.Error("after a missed wake request Famyy should listen again")
+	}
+}
+
+func (fakeVoice) SpeakAs(ctx context.Context, voiceID, text string, rate int) ([]byte, error) {
+	return make([]byte, 2*len(text)), nil
+}
+
+func TestShowListAndReplayCall(t *testing.T) {
+	b, dev := newBrain(t, replyThinker("ok"), func(c *Config) { c.FoVoice, c.CallVoice = "fo-voice", "them-voice" })
+	tools := map[string]func(context.Context, json.RawMessage) (string, error){}
+	for _, tl := range b.Tools() {
+		tools[tl.Name] = tl.Handle
+	}
+	if _, err := tools["show_list"](context.Background(), json.RawMessage(`{"title":"Recent calls","items":["Sun 1:44 The Lalit","Sun 1:44 Flute | 24 Hrs",""]}`)); err != nil {
+		t.Fatal(err)
+	}
+	r := dev.waitFor(t, "list", func(r rec) bool { return r.Kind == "command" && r.Command["type"] == "list" })
+	if r.Command["items"] != "Sun 1:44 The Lalit|Sun 1:44 Flute / 24 Hrs" || r.Command["title"] != "Recent calls" {
+		t.Errorf("list command = %v", r.Command)
+	}
+	if _, err := tools["show_list"](context.Background(), json.RawMessage(`{"title":"x","items":[]}`)); err == nil {
+		t.Error("empty list accepted")
+	}
+
+	out, err := tools["replay_call"](context.Background(), json.RawMessage(`{"title":"The Lalit","lines":[
+		{"speaker":"fo","text":"Hi, are you open?"},{"speaker":"other","text":""},{"speaker":"other","text":"Haan, open hai."}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "2 lines") {
+		t.Errorf("replay_call = %q, want 2 lines (the empty one skipped)", out)
+	}
+	say := dev.waitFor(t, "replay", isSay("Call: The Lalit"))
+	want := 2*len("Hi, are you open?") + 2*len("Haan, open hai.") + SampleRate*2*callGapMs/1000
+	if say.Bytes != want || say.Listen {
+		t.Errorf("replay say = %+v, want %d bytes and no listening after", say, want)
 	}
 }

@@ -116,7 +116,7 @@ func waitConnected(t *testing.T, s *Server) {
 
 func TestSayChunking(t *testing.T) {
 	s, addr := startServer(t, &recHandler{frames: make(chan Frame, 10)})
-	if err := s.Say(context.Background(), "s0", "x", nil); err != ErrNotConnected {
+	if err := s.Say(context.Background(), "s0", "x", nil, false); err != ErrNotConnected {
 		t.Fatalf("say with no device: got %v", err)
 	}
 	nc, err := net.Dial("tcp", addr)
@@ -131,7 +131,7 @@ func TestSayChunking(t *testing.T) {
 		pcm[i] = byte(i)
 	}
 	errc := make(chan error, 1)
-	go func() { errc <- s.Say(context.Background(), "s1", "Hello there", pcm) }()
+	go func() { errc <- s.Say(context.Background(), "s1", "Hello there", pcm, true) }()
 
 	br := bufio.NewReader(nc)
 	f, err := ReadFrame(br)

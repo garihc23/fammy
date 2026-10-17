@@ -10,6 +10,7 @@
 //	y / n             answers a pending approval (tap / hold)
 //	/ack [id]         acknowledges the last (or given) reminder
 //	/audio file.raw   sends a raw pcm_s16le 16 kHz mono file as an utterance
+//	/stop             a tap while Famyy thinks or talks: drop the request
 //	/quit
 //
 // SAY audio is saved to /tmp/femi-say-<id>.raw (play: aplay -f S16_LE -r 16000 -c 1 FILE),
@@ -108,12 +109,17 @@ func (d *device) handle(f link.Frame) {
 		fmt.Printf("%s <- STATE %-8s %q\n", ts(), s.Face, s.Line)
 	case link.TypeSayStart:
 		var s struct {
-			ID    string `json:"id"`
-			Text  string `json:"text"`
-			Bytes int    `json:"bytes"`
+			ID     string `json:"id"`
+			Text   string `json:"text"`
+			Bytes  int    `json:"bytes"`
+			Listen bool   `json:"listen"`
 		}
 		json.Unmarshal(f.Payload, &s)
-		fmt.Printf("%s <- SAY %s %q (%d bytes, %.1f s audio)\n", ts(), s.ID, s.Text, s.Bytes, float64(s.Bytes)/32000)
+		then := ""
+		if s.Listen {
+			then = ", then listens"
+		}
+		fmt.Printf("%s <- SAY %s %q (%d bytes, %.1f s audio%s)\n", ts(), s.ID, s.Text, s.Bytes, float64(s.Bytes)/32000, then)
 		d.mu.Lock()
 		d.sayID, d.sayBytes = s.ID, 0
 		if s.Bytes > 0 {
@@ -220,6 +226,9 @@ func (d *device) stdin() {
 			d.sendJSON(link.TypeEvent, map[string]any{"type": "approval", "id": approval, "ok": ok})
 		case low == "/quit":
 			os.Exit(0)
+		case low == "/stop":
+			fmt.Printf("%s -> stop\n", ts())
+			d.sendJSON(link.TypeEvent, map[string]string{"type": "stop"})
 		case strings.HasPrefix(low, "/ack"):
 			id := strings.TrimSpace(line[4:])
 			if id == "" {

@@ -47,7 +47,7 @@ const (
 type Device interface {
 	Connected() bool
 	State(face, line string) error
-	Say(ctx context.Context, id, text string, pcm []byte) error
+	Say(ctx context.Context, id, text string, pcm []byte, listen bool) error // listen: open the mic again afterwards
 	Command(v any) error
 	Image(caption string, w, h int, rgb565 []byte) error
 }
@@ -72,6 +72,11 @@ type Thinker interface {
 	Think(ctx context.Context, sessionID, text string, onEvent func(Event)) (Result, error)
 }
 
+// VoiceAs is a Voice that can also speak in a chosen voice (call replays).
+type VoiceAs interface {
+	SpeakAs(ctx context.Context, voiceID, text string, sampleRate int) ([]byte, error)
+}
+
 // Ears is speech-to-text (cartesia.Client implements it).
 type Ears interface {
 	Transcribe(ctx context.Context, pcm []byte, sampleRate int) (string, error)
@@ -92,6 +97,8 @@ type Config struct {
 	Reminders *remind.Scheduler
 	Profile   *Profile
 	FamilyDir string
+	FoVoice   string                           // replay_call: voice for Fo's side of a call
+	CallVoice string                           // replay_call: voice for the person Fo called
 	RecordDir string                           // optional: the newest requests are saved here as WAV files
 	Logf      func(format string, args ...any) // default log.Printf
 
@@ -120,6 +127,9 @@ type Brain struct {
 	approvals  map[string]chan string
 	slideStop  context.CancelFunc
 	phrases    map[string][]byte
+	trigger    string             // what started the recording: "wake", "tap" or "followup"
+	stopActive context.CancelFunc // stops the request in progress (a tap on the device)
+	activeCtx  context.Context    // that request's context, for audio its tools start
 }
 
 // New returns a brain; call it before the link starts serving.
@@ -209,8 +219,13 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 		b.logf("device: HELLO %s", f.Payload)
 		go b.hello()
 	case link.TypeAudioStart:
+		var p struct {
+			Trigger string `json:"trigger"`
+		}
+		_ = json.Unmarshal(f.Payload, &p)
 		b.mu.Lock()
 		b.recording, b.audio, b.overflowed = true, make([]byte, 0, 64<<10), false
+		b.trigger = p.Trigger
 		b.mu.Unlock()
 		b.logf("device: AUDIO_START %s", f.Payload)
 	case link.TypeAudioChunk:
@@ -234,7 +249,7 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 		}
 		_ = json.Unmarshal(f.Payload, &p)
 		b.mu.Lock()
-		was, pcm := b.recording, b.audio
+		was, pcm, trigger := b.recording, b.audio, b.trigger
 		b.recording, b.audio = false, nil
 		b.mu.Unlock()
 		if !was {
@@ -255,7 +270,7 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 			go b.cfg.Device.State("idle", "")
 			return
 		}
-		go b.utterance(pcm)
+		go b.utterance(pcm, trigger)
 	case link.TypeEvent:
 		var e deviceEvent
 		if err := json.Unmarshal(f.Payload, &e); err != nil {
@@ -272,6 +287,8 @@ func (b *Brain) DeviceFrame(f link.Frame) {
 			go b.textRequest(e.Text)
 		case "played":
 			b.logf("device: played %s", e.ID)
+		case "stop":
+			b.stopRequest()
 		default:
 			b.logf("device: unknown event %s", f.Payload)
 		}
@@ -304,36 +321,91 @@ func (b *Brain) tryTurn() bool {
 
 func (b *Brain) endTurn() { <-b.turn }
 
-func (b *Brain) utterance(pcm []byte) {
-	ctx := context.Background()
+// activity starts a request the device can stop with a tap (stopRequest).
+func (b *Brain) activity() (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	b.stopActive, b.activeCtx = cancel, ctx
+	b.mu.Unlock()
+	return ctx, func() {
+		b.mu.Lock()
+		b.stopActive, b.activeCtx = nil, nil
+		b.mu.Unlock()
+		cancel()
+	}
+}
+
+// requestCtx is the context of the request in progress (a tap stops it), or
+// Background outside of one.
+func (b *Brain) requestCtx() context.Context {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.activeCtx != nil {
+		return b.activeCtx
+	}
+	return context.Background()
+}
+
+// stopRequest drops the request in progress: its Claude turn and whatever it
+// was about to say. Fo errands already handed over keep going.
+func (b *Brain) stopRequest() {
+	b.mu.Lock()
+	stop := b.stopActive
+	b.mu.Unlock()
+	if stop == nil {
+		b.logf("device: stop (nothing in progress)")
+		return
+	}
+	b.logf("device: stop: dropping the request in progress")
+	stop()
+}
+
+func stopped(ctx context.Context) bool { return errors.Is(ctx.Err(), context.Canceled) }
+
+func (b *Brain) utterance(pcm []byte, trigger string) {
 	if !b.tryTurn() {
 		b.logf("busy: dropping utterance")
-		b.speakPhrase(ctx, MsgBusy)
+		b.speakPhrase(context.Background(), MsgBusy)
 		return
 	}
 	defer b.endTurn()
+	ctx, done := b.activity() // only now: a dropped utterance must not take over the running turn's stop
+	defer done()
+	// after a reply the device listens on by itself; if nobody spoke up, go quiet instead of "didn't catch that"
+	quietMiss := trigger == "followup"
+	didntCatch := func() {
+		if quietMiss {
+			_ = b.cfg.Device.State("idle", "")
+			return
+		}
+		b.speak(ctx, MsgDidntCatch, true, true) // listen again: they wanted something
+	}
 	if b.cfg.Ears == nil {
 		b.speakPhrase(ctx, MsgNoEars)
 		return
 	}
 	if len(pcm) < minAudioBytes {
 		b.logf("utterance too short (%d bytes)", len(pcm))
-		b.speakPhrase(ctx, MsgDidntCatch)
+		didntCatch()
 		return
 	}
 	_ = b.cfg.Device.State("thinking", "Listening…")
 	start := time.Now()
 	text, err := b.cfg.Ears.Transcribe(ctx, pcm, SampleRate)
 	stt := time.Since(start)
+	if stopped(ctx) {
+		b.logf("stt: stopped")
+		return
+	}
 	if err != nil {
 		b.logf("stt failed after %dms: %v", stt.Milliseconds(), err)
 		_ = b.cfg.Device.State("sad", "Couldn't hear that")
-		b.speakPhrase(ctx, MsgDidntCatch)
+		didntCatch()
 		return
 	}
 	if tooShort(text) {
 		b.logf("stt %dms: %q is too short", stt.Milliseconds(), text)
-		b.speakPhrase(ctx, MsgDidntCatch)
+		didntCatch()
 		return
 	}
 	b.runTurn(ctx, "voice", text, stt)
@@ -344,13 +416,14 @@ func (b *Brain) textRequest(text string) {
 	if text == "" {
 		return
 	}
-	ctx := context.Background()
 	if !b.tryTurn() {
 		b.logf("busy: dropping text %q", text)
-		b.speakPhrase(ctx, MsgBusy)
+		b.speakPhrase(context.Background(), MsgBusy)
 		return
 	}
 	defer b.endTurn()
+	ctx, done := b.activity()
+	defer done()
 	b.runTurn(ctx, "text", text, 0)
 }
 
@@ -425,6 +498,10 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 		b.mu.Lock()
 		b.session = res.SessionID // keep the conversation if it got far enough to have one
 		b.mu.Unlock()
+		if stopped(ctx) {
+			b.logf("turn %d stopped after %dms (events %s)", n, took.Milliseconds(), strings.Join(events, ","))
+			return
+		}
 		b.logf("turn %d FAILED after %dms: %v (events %s)", n, took.Milliseconds(), err, strings.Join(events, ","))
 		_ = b.cfg.Device.State("sad", "Something went wrong")
 		msg := MsgError
@@ -445,7 +522,11 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	if reply == "" {
 		reply = "Done."
 	}
-	tts := b.speak(ctx, reply, false)
+	listen := keepListening(text, reply)
+	tts := b.speak(ctx, reply, false, listen)
+	if stopped(ctx) {
+		b.logf("turn %d stopped while speaking", n)
+	}
 	b.logf("turn %d done: reply %q | stt %dms, turn %dms, tts %dms, $%.4f | events [%s]",
 		n, reply, stt.Milliseconds(), took.Milliseconds(), tts.Milliseconds(), res.CostUSD, strings.Join(events, ","))
 }
@@ -570,11 +651,11 @@ func Spoken(s string) string {
 // ---- speaking ----
 
 // speakPhrase speaks a fixed phrase, synthesizing it only once.
-func (b *Brain) speakPhrase(ctx context.Context, text string) { b.speak(ctx, text, true) }
+func (b *Brain) speakPhrase(ctx context.Context, text string) { b.speak(ctx, text, true, false) }
 
 // speak sends text as a SAY (with audio when TTS is configured) and returns
 // the TTS time.
-func (b *Brain) speak(ctx context.Context, text string, cache bool) time.Duration {
+func (b *Brain) speak(ctx context.Context, text string, cache, listen bool) time.Duration {
 	b.mu.Lock()
 	b.sayN++
 	id := fmt.Sprintf("s%d", b.sayN)
@@ -596,10 +677,30 @@ func (b *Brain) speak(ctx context.Context, text string, cache bool) time.Duratio
 			b.mu.Unlock()
 		}
 	}
-	if err := b.cfg.Device.Say(ctx, id, text, pcm); err != nil {
+	if err := b.cfg.Device.Say(ctx, id, text, pcm, listen); err != nil && !stopped(ctx) {
 		b.logf("say %s %q: %v", id, text, err)
 	}
 	return took
+}
+
+// closing is a whole request that just ends the conversation: "thanks", "that's all", "bye Famyy", "no".
+var closing = func() *regexp.Regexp {
+	done := `(?:thanks?(?: you)?(?: so much| a lot)?|bye(?: bye)?|goodbye|good ?night|that'?s (?:all|it|fine|enough)|that will be all|` +
+		`stop|enough|nothing(?: else)?|no(?: thanks?| thank you)?|nope|never ?mind|cancel|be quiet|quiet|shut up|sleep|go to sleep)`
+	filler := `(?:ok(?:ay)?|no|nah|fine|great|cool|alright|all right|perfect|famyy|famy|fammy|faimy|femy|femmy|femi|for now|then|please)`
+	return regexp.MustCompile(`(?i)^\W*(?:` + filler + `\W+)*` + done + `(?:\W+(?:` + done + `|` + filler + `))*\W*$`)
+}()
+
+// farewell in Famyy's reply also ends the conversation.
+var farewell = regexp.MustCompile(`(?i)\b(?:bye|good ?night|take care|talk (?:to you )?(?:soon|later))\b`)
+
+// keepListening: after replying, listen for the next thing without the wake
+// phrase, unless the person or Famyy has just ended the conversation.
+func keepListening(request, reply string) bool {
+	if closing.MatchString(request) || strings.Contains(strings.ToLower(request), "go to sleep") {
+		return false
+	}
+	return !farewell.MatchString(reply)
 }
 
 // ---- reminders ----
@@ -642,7 +743,7 @@ func (b *Brain) reminderFired(r remind.Reminder) {
 			}
 			spoken = fmt.Sprintf("%s, it's time for your %s. Tap me when you've taken it.", who, r.Text)
 		}
-		b.speak(context.Background(), strings.ReplaceAll(spoken, "..", "."), false)
+		b.speak(context.Background(), strings.ReplaceAll(spoken, "..", "."), false, false)
 	}()
 }
 
