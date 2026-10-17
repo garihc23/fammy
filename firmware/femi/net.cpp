@@ -116,6 +116,14 @@ static void onCommand(const char *j) {
     jsonStr(j, "name", s, sizeof s);
     if (!strcmp(s, "game")) appReq = APP_RUNNER;
     if (!strcmp(s, "morse")) appReq = APP_MORSE;
+  } else if (!strcmp(type, "list")) {   // {"type":"list","title":"Recent calls","items":"one|two|three"}
+    femiLock();
+    FemiView &v = femiView();
+    jsonStr(j, "title", v.listTitle, sizeof v.listTitle);
+    if (!jsonStr(j, "items", v.listItems, sizeof v.listItems)) v.listItems[0] = 0;
+    v.list = true;
+    v.listSince = now;
+    femiUnlock();
   } else if (!strcmp(type, "heard")) {   // the full transcript, for the thought cloud
     femiLock();
     FemiView &v = femiView();
@@ -174,7 +182,8 @@ static void onControl(uint8_t type, const char *j) {
       v.speakSince = now;
       v.speakMs = bytes ? bytes / 32 : max(2500u, (unsigned)strlen(v.caption) * 70);   // 32 bytes per ms at 16 kHz
       femiUnlock();
-      playerSayStart(id, bytes);
+      int listen = jsonBool(j, "listen", false) ? 1 : strstr(j, "\"listen\"") ? 0 : -1;   // -1: an older brain didn't say
+      playerSayStart(id, bytes, listen);
       break;
     }
     case F_SAY_END:
@@ -214,7 +223,7 @@ static bool pumpIncoming() {
       continue;
     }
     size_t want = min((size_t)remaining, sizeof tmp);
-    if (curType == F_SAY_CHUNK) {
+    if (curType == F_SAY_CHUNK && !playerDiscarding()) {
       want = min(want, speakRing().space());
       if (want == 0) break;   // the speaker is behind: leave the rest in TCP, which slows the brain down
     }
@@ -223,7 +232,7 @@ static bool pumpIncoming() {
     did = true;
     remaining -= r;
     if (curType == F_SAY_CHUNK) {
-      speakRing().write(tmp, r);
+      if (!playerDiscarding()) speakRing().write(tmp, r);   // after a stop, the rest of that reply is dropped
     } else if (curType == F_IMAGE_CHUNK) {
       uint32_t room = imageBytes > imageAt ? imageBytes - imageAt : 0;
       uint32_t n = min((uint32_t)r, room);

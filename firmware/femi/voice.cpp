@@ -24,6 +24,7 @@ static int64_t sumSq;
 static int skip, frameN, frames, speechFrames, speechRun, silentFrames;
 static float noise;
 static bool heard;
+static bool answering;   // listening for an answer, not a new request: if nobody speaks, end quietly
 
 Ring &micRing() { return mic; }
 bool voiceRecording() { return recording; }
@@ -42,6 +43,7 @@ bool voiceStart(const char *trigger) {
   skip = CHIME_SKIP;
   noise = 500;
   heard = false;
+  answering = !strcmp(trigger, "followup");
   char j[64];
   snprintf(j, sizeof j, "{\"rate\":16000,\"trigger\":\"%s\"}", trigger);
   netSend(F_AUDIO_START, j);   // queued before any audio, so the brain sees START first
@@ -63,10 +65,14 @@ static void finish(const char *reason) {
   netSend(F_AUDIO_END, j);   // the link sends every recorded byte before this
   if (strcmp(reason, "cancel") == 0) {
     setBusy(false);
-    playerChime(false);
+    if (!answering) playerChime(false);   // a false wake gets a soft "never mind"; an unanswered follow-up just ends
   } else {
     playerClipOf(CLIP_ACK, CLIP_ACK_N);   // "Okay!" straight away: no silent wait while the brain works
   }
+}
+
+void voiceCancel() {
+  if (recording) finish("cancel");
 }
 
 void voiceFeed(const int16_t *s, size_t n) {
@@ -110,6 +116,8 @@ void voiceFeed(const int16_t *s, size_t n) {
 static Ring spk;
 static I2SClass amp;
 static volatile bool playing = false, sayEnded = false;
+static volatile bool stopReq = false, discarding = false;   // a tap cut the reply short
+static volatile int sayListen = -1;                          // listen afterwards: 1 yes, 0 no, -1 only after a question
 static volatile int playLevel = 0;
 static char sayId[16];
 
@@ -142,13 +150,24 @@ void playerClipOf(int first, int count) {   // the next of a group of clips, so 
   playerClip(first + turn[first]++ % count);
 }
 
-void playerSayStart(const char *id, uint32_t bytes) {
+void playerSayStart(const char *id, uint32_t bytes, int listen) {
   strlcpy(sayId, id, sizeof sayId);
+  sayListen = listen;
   sayEnded = false;
+  discarding = false;
   playing = true;
 }
 
-void playerSayEnd() { sayEnded = true; }
+void playerSayEnd() {
+  if (!discarding) sayEnded = true;
+}
+
+void playerStop() {
+  discarding = true;   // whatever is still on its way is dropped as it arrives
+  stopReq = true;      // the player task empties what is already queued
+}
+
+bool playerDiscarding() { return discarding; }
 
 // ---------- sound effects, made on the spot ----------
 
@@ -225,6 +244,18 @@ static void playClip(const Clip &c) {
 static void playerTask(void *) {
   static int16_t buf[512];
   for (;;) {
+    if (stopReq) {   // a tap cut the reply short: forget it and anything queued, no follow-up listening
+      stopReq = false;
+      spk.clear();
+      xQueueReset(cues);
+      playing = sayEnded = false;
+      playLevel = 0;
+      femiLock();
+      femiView().speaking = false;
+      femiView().busy = false;
+      femiUnlock();
+      cue(SFX_SOFT);
+    }
     Cue q;
     if (!playing && spk.available() == 0 && xQueueReceive(cues, &q, 0) == pdTRUE) {
       if (millis() - q.at < CUE_STALE_MS) {
@@ -257,7 +288,8 @@ static void playerTask(void *) {
       FemiView &v = femiView();
       v.speaking = false;
       size_t len = strlen(v.caption);
-      followUp = len > 0 && v.caption[len - 1] == '?';   // Femi asked something: listen for the answer
+      // keep the conversation going without the wake phrase when the brain says so (an older brain: after a question)
+      followUp = sayListen >= 0 ? sayListen == 1 : len > 0 && v.caption[len - 1] == '?';
       v.busy = false;
       femiUnlock();
       char j[64];

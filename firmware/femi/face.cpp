@@ -9,6 +9,7 @@
 #include "fo.h"
 #include "words.h"
 #include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold9pt7b.h>
 
 struct Drop { int x; float y, v; };
 struct Theme {
@@ -441,6 +442,46 @@ void faceCardFrame(uint32_t now, bool urgent, const char *title, const char *tex
   }
   drawStatusTimer(now);
   drawRec(now);
+}
+
+// a list (recent calls, ...) on a card over the whole screen: a title, up to 8 rows; drawn once
+void faceListFrame(uint32_t now, const char *title, const char *items, bool fresh) {
+  if (!fresh) return;
+  if (shownInvert) {
+    tft.invertDisplay(false);
+    shownInvert = false;
+  }
+  tft.fillScreen(th->bg);
+  tft.fillRoundRect(6, 6, 308, 228, 14, th->ink);
+  tft.fillRoundRect(8, 8, 304, 224, 12, th->bubble);
+  tft.setFont(&FreeSansBold9pt7b);
+  tft.setTextColor(th->ink);
+  tft.setCursor(20, 30);
+  tft.print(title);
+  tft.fillRect(20, 38, 280, 2, th->accent);
+  tft.setFont(nullptr);
+  tft.setTextSize(1);
+  tft.setTextColor(th->dim);
+  tft.setCursor(232, 22);
+  tft.print("tap to close");
+
+  tft.setFont(&FreeSans9pt7b);
+  int row = 0;
+  for (const char *p = items; *p && row < 8; row++) {
+    const char *bar = strchr(p, '|');
+    int len = bar ? bar - p : strlen(p);
+    int y = 46 + row * 22;
+    if (row % 2) tft.fillRoundRect(14, y, 292, 21, 6, th->rain);   // soft stripes, easy to follow across
+    while (len > 0 && textWidth(&FreeSans9pt7b, p, len) > 276) len--;   // too long for the card: cut
+    char line[64];
+    snprintf(line, sizeof line, "%.*s", min(len, (int)sizeof line - 1), p);
+    tft.setTextColor(th->ink);
+    tft.setCursor(22, y + 15);
+    tft.print(line);
+    p = bar ? bar + 1 : p + strlen(p);
+  }
+  tft.setFont(nullptr);
+  stageShown = false;
 }
 
 void facePhotoFrame(uint32_t now, const uint16_t *pixels, const char *caption, bool fresh) {

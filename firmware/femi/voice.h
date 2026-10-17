@@ -8,14 +8,17 @@
 bool voiceStart(const char *trigger);              // "wake" | "tap" | "followup"; false if busy / no link
 void voiceFeed(const int16_t *samples, size_t n);  // called from the mic reader with every 16 kHz sample
 bool voiceRecording();
+void voiceCancel();                                // drop the request being recorded (a tap while listening)
 int voiceLevel();                                  // loudness of the last 30 ms, for the listening meter
 Ring &micRing();                                   // recorded audio waiting to be sent (network task reads)
 
 // ---- playback through the amp ----
 void playerBegin();
 Ring &speakRing();                                 // reply audio waiting to be played (network task writes)
-void playerSayStart(const char *id, uint32_t bytes);
+void playerSayStart(const char *id, uint32_t bytes, int listen);   // listen afterwards: 1 yes, 0 no, -1 only after a question
 void playerSayEnd();                               // all of this reply's audio has arrived
+void playerStop();                                 // cut the reply short: what's queued and what's still arriving
+bool playerDiscarding();                           // the network drops reply audio after a stop, until the next reply
 bool playerBusy();                                 // still playing
 int playerLevel();                                 // loudness right now, to move the mouth
 void playerChime(bool happy);                      // short sound cue: happy rising or gentle falling

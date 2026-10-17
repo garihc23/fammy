@@ -142,6 +142,25 @@ void loop() {
     faceRepaint();
   }
 
+  // a list (recent calls, ...), until tapped or 45 s
+  static uint32_t listOnScreen = 0;   // arrival time of the list being shown
+  if (v.list) {
+    if (touch.tapped || now - v.listSince > 45000) {
+      clearFlag(&FemiView::list);
+      listOnScreen = 0;
+      faceRepaint();
+      touch.tapped = false;
+    } else {
+      faceListFrame(now, v.listTitle, v.listItems, listOnScreen != v.listSince);
+      listOnScreen = v.listSince;
+      delay(20);
+      return;
+    }
+  } else if (listOnScreen) {
+    listOnScreen = 0;
+    faceRepaint();
+  }
+
   // a reminder, until tapped
   if (v.remind) {
     if (touch.tapped) {
@@ -210,6 +229,27 @@ void loop() {
   }
   if (wasBusy && !busy) speechRearm();   // done answering: listen for "hey Famyy" again
   wasBusy = busy;
+
+  // a tap while Famyy listens, thinks or talks stops it
+  if (!app && touch.tapped && busy && timerPhase() != T_DONE) {
+    if (voiceRecording()) {
+      voiceCancel();
+    } else {
+      playerStop();
+      netSend(F_EVENT, "{\"type\":\"stop\"}");   // the brain drops the turn in progress
+    }
+    femiLock();
+    femiView().busy = false;
+    if (femiView().foState == FO_WORKING) {   // Fo was out on the job: it shrugs and goes
+      femiView().foState = FO_FAILED;
+      femiView().foSince = now;
+    }
+    femiUnlock();
+    busy = false;
+    wasBusy = false;
+    speechRearm();
+    touch.tapped = false;   // this tap was "stop", not "talk"
+  }
 
   // tap to talk, when nothing else is going on
   if (!app && touch.tapped && !busy && v.linkUp && timerPhase() != T_DONE) {

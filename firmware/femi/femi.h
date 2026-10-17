@@ -32,6 +32,11 @@ struct FemiView {
   char photoCaption[96];
   uint32_t photoSince;
 
+  bool list;                      // a list to show (recent calls, ...), until tapped
+  char listTitle[40];
+  char listItems[640];            // items separated by '|'
+  uint32_t listSince;
+
   uint8_t foState;                // FoState (fo.h): Fo on the stage
   uint8_t foTask;                 // FoTask: which job icon Fo works under
   uint32_t foCalledAt, foSince;   // when Fo was called; when it finished
