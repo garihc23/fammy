@@ -71,7 +71,8 @@ static void foCues(const FoPose &p, uint32_t calledAt) {
   };
   if (p.phase == PH_ENTER && once(1)) {
     playerSfx(SFX_WHOOSH);
-    playerClipOf(CLIP_FO_START, CLIP_FO_START_N);   // "Let me ask Fo!"
+    if (p.returning) playerClipOf(CLIP_FO_BACK, CLIP_FO_BACK_N);   // "Fo's back!"
+    else playerClipOf(CLIP_FO_START, CLIP_FO_START_N);             // "Let me ask Fo!"
   }
   if (p.phase == PH_SHAKE && p.tp >= 200 && once(2)) playerSfx(SFX_CLINK);
   static int reassured = -1;   // a few words every 14 s while Fo works: "Fo's still on it." "Almost there." ...
@@ -110,7 +111,7 @@ void loop() {
   femiUnlock();
 
   // Fo on the stage, and its sounds
-  faceSetFo((FoState)v.foState, v.foCalledAt, v.foSince, (FoTask)v.foTask);
+  faceSetFo((FoState)v.foState, v.foCalledAt, v.foSince, (FoTask)v.foTask, v.foOut);
   faceSetLink(v.linkUp);
 
   // the camera's snapshot, as a polaroid while Famyy looks at it and answers; gone 10 s after that answer

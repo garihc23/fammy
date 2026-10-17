@@ -7,6 +7,7 @@
 //   ./preview.sh icons     Fo working on each kind of job
 //   ./preview.sh faces     every one of Famyy's moods
 //   ./preview.sh snap      "how am I looking?": the camera's flash, a polaroid, the answer
+//   ./preview.sh errand    a background errand: Fo walks off with it, and comes back with the result
 #include <Adafruit_GFX.h>
 #include <Fonts/FreeSans9pt7b.h>
 #include "../femi/QuicksandBold16.h"
@@ -155,6 +156,18 @@ int main(int argc, char **argv) {
       else if (t < talkAt) frame(t, {THINKING, 0, FO_OFF, 0, 0, TASK_WEB, {heard, heardAt, heard, "", 0, 1}, -1, nullptr, snap, snapAt});
       else if (t < talkAt + talkMs) frame(t, {TALKING, voice(t), FO_OFF, 0, 0, TASK_WEB, {heard, heardAt, "", reply, talkAt, talkMs}, -1, nullptr, snap, snapAt});
       else frame(t, {IDLE, 0, FO_OFF, 0, 0, TASK_WEB, none, -1, nullptr, snap, snapAt});
+    }
+    return 0;
+  }
+  if (!strcmp(what, "errand")) {   // a background errand: Fo goes off with it, Famyy is free, Fo comes back
+    const char *heard = "Book me a haircut for Saturday";
+    uint32_t called = 300, away = 3500, back = 7500, talkAt = 10000, talkMs = 4000;
+    for (uint32_t t = 0; t < talkAt + talkMs + 800; t += DT) {
+      if (t < away) frame(t, {WORKING, 0, FO_WORKING, called, 0, TASK_CALENDAR, {heard, 0, "Asking Fo...", "", 0, 1}, -1, nullptr});
+      else if (t < back) frame(t, {t < away + 1800 ? TALKING : IDLE, t < away + 1800 ? voice(t) : 0, FO_AWAY, called, away, TASK_CALENDAR,
+                                   {"", 0, "", "Fo's on it, I'll tell you when it's done.", away, 1800}, -1, nullptr});
+      else if (t < talkAt) frame(t, {THINKING, 0, FO_BACK, back, back, TASK_CALENDAR, none, -1, nullptr});
+      else frame(t, {TALKING, voice(t), FO_BACK, back, back, TASK_CALENDAR, {"", 0, "", "Booked! Saturday at eleven at the salon.", talkAt, talkMs}, -1, nullptr});
     }
     return 0;
   }

@@ -47,6 +47,7 @@ struct FemiView {
   uint8_t foState;                // FoState (fo.h): Fo on the stage
   uint8_t foTask;                 // FoTask: which job icon Fo works under
   uint32_t foCalledAt, foSince;   // when Fo was called; when it finished
+  uint8_t foOut;                  // errands Fo is running in the background (the top bar's badge)
 };
 
 const int PHOTO_W = 320, PHOTO_H = 240;

@@ -34,6 +34,7 @@ static void setUp(bool u) {
   if (!u) {   // anything in flight is lost with the link
     v.busy = v.approve = false;
     v.foState = FO_OFF;
+    v.foOut = 0;
   }
   femiUnlock();
   Serial.println(u ? ">> brain connected" : ">> brain disconnected");
@@ -177,6 +178,18 @@ static void onCommand(const char *j) {
     } else if (!strcmp(s, "done") && v.foState == FO_WORKING) {
       v.foState = jsonBool(j, "ok", false) ? FO_DONE : FO_FAILED;
       v.foSince = now;
+    } else if (!strcmp(s, "away")) {   // the errand goes on in the background: Fo walks off with it in its bag
+      if (v.foOut < 9) v.foOut++;
+      if (v.foState == FO_WORKING || v.foState == FO_DONE) {   // (done: Famyy began "Fo's on it" a moment before)
+        v.foState = FO_AWAY;
+        v.foSince = now;
+      }
+    } else if (!strcmp(s, "back")) {   // a background errand is done: Fo brings it back, then Famyy tells you
+      if (v.foOut) v.foOut--;
+      char task[16] = "";
+      if (jsonStr(j, "task", task, sizeof task)) v.foTask = foTaskFromName(task);
+      v.foState = jsonBool(j, "ok", false) ? FO_BACK : FO_BACK_FAILED;
+      v.foCalledAt = v.foSince = now;   // a visit of its own, with its own sounds
     }
     femiUnlock();
   } else if (!strcmp(type, "theme")) {

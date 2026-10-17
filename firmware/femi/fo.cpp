@@ -5,7 +5,7 @@
 
 static const int FAMYY_ASIDE = 112;
 static const int FAMYY_HAND = FAMYY_ASIDE + 58, FAMYY_REACH = 30;   // Famyy's right hand, from creature.cpp
-static const int FO_HOME = 250, FO_AWAY = 380;
+static const int FO_HOME = 250, FO_OFFSTAGE = 380;   // Fo's spot, and just off the right edge
 static const int FO_W = 54, FO_H = 60, FO_TOP = GROUND_Y - FO_H - 17, FO_REACH = 14;
 static const int FO_OUT = 2;   // Fo's line weight: thinner than Famyy's
 
@@ -25,10 +25,86 @@ FoTask foTaskFromName(const char *s) {
   return TASK_WEB;
 }
 
-FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, int homeX) {
+// Fo walking off with the errand in its bag (a background errand), Famyy back to its spot
+static FoPose awayPose(uint32_t te, int homeX) {
   FoPose p = {};
   p.famyyX = homeX;
-  p.foX = FO_AWAY;
+  p.foX = FO_OFFSTAGE;
+  if (te >= FO_LEAVE_MS) return p;   // gone: the top bar shows it's out
+  p.phase = PH_LEAVE;
+  p.tp = te;
+  p.lookAtFo = true;
+  p.foBag = true;
+  p.foWave = te < 600;
+  p.foWalk = te >= 300;
+  p.foX = lerp(FO_HOME, FO_OFFSTAGE, easeIn((te - 250) / (float)(FO_LEAVE_MS - 250)));
+  p.famyyX = lerp(FAMYY_ASIDE, homeX, easeInOut((te - 300) / 600.0f));
+  return p;
+}
+
+// Fo coming back with a background errand: walks in with its bag, hands over the result (or shrugs), leaves
+static FoPose backPose(uint32_t t, bool ok, int homeX) {
+  FoPose p = {};
+  p.famyyX = homeX;
+  p.foX = FO_OFFSTAGE;
+  p.lookAtFo = true;
+  p.returning = true;
+  if (t < FO_ENTER_MS) {
+    p.phase = PH_ENTER;
+    p.tp = t;
+    p.foBag = true;
+    p.famyyX = lerp(homeX, FAMYY_ASIDE, easeInOut(t / 600.0f));
+    p.foX = lerp(FO_OFFSTAGE, FO_HOME, easeOut(t / (float)FO_ENTER_MS));
+    p.foWalk = t < FO_ENTER_MS - 150;
+    return p;
+  }
+  uint32_t te = t - FO_ENTER_MS;
+  if (te < FO_HANDOFF_MS) {
+    p.famyyX = FAMYY_ASIDE;
+    p.foX = FO_HOME;
+    p.tp = te;
+    if (!ok) {
+      p.phase = PH_SHRUG;
+      p.foShrug = true;
+      return p;
+    }
+    p.phase = PH_HANDOFF;
+    p.foHappy = true;
+    p.foReach = te < 350 ? 0.7f : clamp01(0.7f - (te - 350) / 300.0f);
+    p.famyyReach = clamp01((te - 250) / 300.0f) * 0.6f;
+    int catchX = FAMYY_HAND + (int)(0.6f * FAMYY_REACH);
+    if (te < 700) {
+      float u = te / 700.0f;
+      p.token = true;
+      p.tokenX = lerp(foHandX(FO_HOME, 0.7f), catchX, u);
+      p.tokenY = CREATURE_HAND_Y - 12 - (int)(4 * 34 * u * (1 - u));
+    } else {
+      p.sparkle = 2 + (int)((te - 700) / 40);
+      p.sparkleX = catchX;
+      p.sparkleY = CREATURE_HAND_Y - 10;
+    }
+    return p;
+  }
+  uint32_t tl = te - FO_HANDOFF_MS;
+  if (tl >= FO_LEAVE_MS) {
+    p.lookAtFo = false;
+    return p;
+  }
+  p.phase = PH_LEAVE;
+  p.tp = tl;
+  p.foWave = tl < 600;
+  p.foWalk = tl >= 300;
+  p.foX = lerp(FO_HOME, FO_OFFSTAGE, easeIn((tl - 250) / (float)(FO_LEAVE_MS - 250)));
+  p.famyyX = lerp(FAMYY_ASIDE, homeX, easeInOut((tl - 300) / 600.0f));
+  return p;
+}
+
+FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, int homeX) {
+  if (state == FO_AWAY) return awayPose(now - since, homeX);
+  if (state == FO_BACK || state == FO_BACK_FAILED) return backPose(now - since, state == FO_BACK, homeX);
+  FoPose p = {};
+  p.famyyX = homeX;
+  p.foX = FO_OFFSTAGE;
   if (state == FO_OFF) return p;
   uint32_t t = now - calledAt;
   const uint32_t workAt = FO_ENTER_MS + FO_SHAKE_MS;
@@ -40,7 +116,7 @@ FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, in
     if (t < FO_ENTER_MS) {
       p.phase = PH_ENTER;
       p.tp = t;
-      p.foX = lerp(FO_AWAY, FO_HOME, easeOut(t / (float)FO_ENTER_MS));
+      p.foX = lerp(FO_OFFSTAGE, FO_HOME, easeOut(t / (float)FO_ENTER_MS));
       p.foWalk = t < FO_ENTER_MS - 150;
       p.foWave = t > 500;   // hello!
     } else if (t < workAt) {
@@ -100,7 +176,7 @@ FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, in
     p.tp = tl;
     p.foWave = tl < 600;
     p.foWalk = tl >= 300;
-    p.foX = lerp(FO_HOME, FO_AWAY, easeIn((tl - 250) / (float)(FO_LEAVE_MS - 250)));
+    p.foX = lerp(FO_HOME, FO_OFFSTAGE, easeIn((tl - 250) / (float)(FO_LEAVE_MS - 250)));
     p.famyyX = lerp(FAMYY_ASIDE, homeX, easeInOut((tl - 300) / 600.0f));
     return p;
   }
@@ -269,6 +345,14 @@ void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Pa
   }
 
   if (nameFont) nameChip(c, fx, "Fo", nameFont, pal);
+
+  if (p.foBag && !p.foWave) {   // the errand, in a little satchel at its side
+    int bx = rx + 6, by = sy + 18;
+    c->drawCircleHelper(bx + 6, by, 5, 0x1 | 0x2, pal.foInk);   // the handle
+    c->fillRoundRect(bx - 1, by - 1, 15, 13, 3, pal.foInk);
+    c->fillRoundRect(bx + 1, by + 1, 11, 9, 2, 0xB46A);        // tan leather
+    c->drawFastHLine(bx + 1, by + 4, 11, pal.foInk);            // the flap
+  }
 
   // the body: a soft white squircle
   c->fillRoundRect(fx - FO_W / 2 - FO_OUT, top - FO_OUT, FO_W + 2 * FO_OUT, FO_H + 2 * FO_OUT, 22 + FO_OUT, pal.foInk);

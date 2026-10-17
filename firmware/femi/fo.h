@@ -6,7 +6,9 @@
 // what kind of job), then Fo tosses the result to Famyy, waves, and walks off.
 // Everything here is a pure function of time, so the preview tool draws exactly what the device does.
 
-enum FoState : uint8_t { FO_OFF, FO_WORKING, FO_DONE, FO_FAILED };
+// working, done and failed are a visit within one request; away and back are an errand Fo runs in the
+// background (Famyy stays free meanwhile): it walks off with its bag, and later comes back with the result
+enum FoState : uint8_t { FO_OFF, FO_WORKING, FO_DONE, FO_FAILED, FO_AWAY, FO_BACK, FO_BACK_FAILED };
 enum FoTask : uint8_t { TASK_WEB, TASK_CALL, TASK_MESSAGE, TASK_EMAIL, TASK_SHOP, TASK_CALENDAR };
 enum FoPhase : uint8_t { PH_NONE, PH_ENTER, PH_SHAKE, PH_WORK, PH_HANDOFF, PH_SHRUG, PH_LEAVE };
 
@@ -20,6 +22,8 @@ struct FoPose {
   int foX;                    // where Fo stands (off-screen when it isn't there)
   float foReach;              // Fo's arm out towards Famyy
   bool foWalk, foWave, foShrug, foHappy;
+  bool foBag;                 // carrying the errand off, or back
+  bool returning;             // this entrance brings a background errand back (not a new job)
   bool token;                 // the result flying from Fo to Famyy
   int tokenX, tokenY;
   int sparkle;                // 0 none, else the size of the sparkles around the hands
@@ -29,7 +33,7 @@ struct FoPose {
 const uint32_t FO_ENTER_MS = 1100, FO_SHAKE_MS = 800, FO_HANDOFF_MS = 1000, FO_LEAVE_MS = 1000;
 
 FoTask foTaskFromName(const char *name);   // "call" "message" "email" "shop" "calendar", anything else is web
-// the scene at time now: Fo was called at calledAt; state changed to done/failed at since.
+// the scene at time now: Fo was called at calledAt; state changed to done/failed/away/back at since.
 // homeX is where Famyy stands when Fo isn't there (it moves aside to make room for a speech bubble).
 FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, int homeX);
 void foPlaceFamyy(const FoPose &p, Look &k);   // moves Famyy aside, turns its eyes to Fo, puts its hand out

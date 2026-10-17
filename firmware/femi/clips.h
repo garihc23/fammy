@@ -14,4 +14,5 @@ const int CLIP_YES = 15, CLIP_YES_N = 2;
 const int CLIP_NO = 17, CLIP_NO_N = 1;
 const int CLIP_STOPPED = 18, CLIP_STOPPED_N = 1;
 const int CLIP_REMIND_HOW = 19, CLIP_REMIND_HOW_N = 1;
-const int CLIP_COUNT = 20;
+const int CLIP_FO_BACK = 20, CLIP_FO_BACK_N = 2;
+const int CLIP_COUNT = 22;

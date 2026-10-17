@@ -12,6 +12,6 @@ void facePhotoFrame(uint32_t now, const uint16_t *pixels, const char *caption, b
 void faceSetLink(bool up);   // connected to the brain
 void faceSetSnap(const uint16_t *pixels, uint32_t since);   // the camera's snapshot as a polaroid (nullptr: none)
 void faceSetClaude(uint32_t now, bool on);   // Famyy is waiting on Claude: Claude sits on its roof
-void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task);   // Fo's scene on the stage
+void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task, int out);   // Fo's scene; out: errands it's running
 void faceRepaint();   // after a photo: redraw everything from scratch
 void faceAppFrame(uint32_t now, const App &app, float exitHold);   // draw an app instead; exitHold 0..1 shows the hold-to-exit bar

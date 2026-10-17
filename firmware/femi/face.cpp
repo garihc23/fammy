@@ -81,6 +81,7 @@ static bool stageShown = false;            // the full-width stage is on screen 
 static FoState foState = FO_OFF;
 static uint32_t foCalledAt = 0, foSince = 0;
 static FoTask foTask = TASK_WEB;
+static int foOut = 0;   // errands Fo is running in the background
 
 // words in bubbles
 static float homeX = HOME_X;
@@ -227,7 +228,7 @@ static void leaveStage() {
 // on the right. Drawn off-screen and only when something in it changes.
 static void drawBar(uint32_t now) {
   struct Shown {
-    int minute, secs;
+    int minute, secs, foOut, spin;
     bool paused, rec, dot, online;
     char fps[10];
   };
@@ -240,6 +241,8 @@ static void drawBar(uint32_t now) {
   memset(&st, 0, sizeof st);   // so whole-struct comparison sees no stray padding
   st.minute = known && getLocalTime(&tm, 0) ? tm.tm_hour * 60 + tm.tm_min : -1;
   st.online = linkUp;
+  st.foOut = foOut;
+  st.spin = foOut ? (now / 250) % 4 : 0;   // the badge's little dots turn while Fo is out
   st.secs = counting ? (timerLeft(now) + 999) / 1000 : -1;
   st.paused = counting && timerPaused();
   st.rec = listening;
@@ -265,6 +268,22 @@ static void drawBar(uint32_t now) {
     bar->setTextColor(st.paused ? th->dim : th->ink);
     bar->setCursor(10, 8);
     bar->print(buf);
+  }
+  if (st.foOut && !st.rec) {   // "Fo is out": a tiny Fo, three turning dots, and how many errands
+    int x = 236;
+    bar->fillRoundRect(x, 3, 15, 15, 6, th->foInk);
+    bar->fillRoundRect(x + 1, 4, 13, 13, 5, th->fo);
+    bar->fillRect(x + 4, 8, 2, 4, th->foInk);
+    bar->fillRect(x + 9, 8, 2, 4, th->foInk);
+    char label[12];
+    snprintf(label, sizeof label, st.foOut > 1 ? "out x%d" : "out", st.foOut);
+    bar->setFont(&QuicksandMedium13);
+    bar->setTextColor(th->dim);
+    bar->setCursor(x + 19, 15);
+    bar->print(label);
+    bar->setFont(nullptr);
+    int dx = x + 19 + textWidth(&QuicksandMedium13, label, strlen(label)) + 4;
+    for (int i = 0; i < 3; i++) bar->fillCircle(dx + i * 6, 11, i == st.spin % 3 ? 2 : 1, th->accent);
   }
   if (st.rec) {
     if (st.dot) bar->fillRect(262, 7, 8, 8, th->ink);
@@ -393,7 +412,8 @@ void faceSetClaude(uint32_t now, bool on) {
   }
 }
 
-void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task) {
+void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task, int out) {
+  foOut = out;
   foState = state;
   foCalledAt = calledAt;
   foSince = since;
