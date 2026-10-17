@@ -54,6 +54,8 @@ func TestSessionKeepsOneProcess(t *testing.T) {
 
 func TestSessionTimeoutClosesIt(t *testing.T) {
 	t.Setenv("FAKE_DIR", t.TempDir())
+	defer func(w time.Duration) { interruptWait = w }(interruptWait)
+	interruptWait = 200 * time.Millisecond // this fake ignores the interrupt
 	bin := fakeClaude(t, `read -r line; sleep 30`)
 	s, err := StartSession(Options{ClaudePath: bin, WorkDir: t.TempDir(), Timeout: 300 * time.Millisecond}, "")
 	if err != nil {
@@ -114,6 +116,8 @@ func TestSessionResumeID(t *testing.T) {
 // recycler reads them, and shutdown waits on the recycler's lock.
 func TestSessionMetaDuringATurn(t *testing.T) {
 	t.Setenv("FAKE_DIR", t.TempDir())
+	defer func(w time.Duration) { interruptWait = w }(interruptWait)
+	interruptWait = 200 * time.Millisecond
 	s, err := StartSession(Options{ClaudePath: fakeClaude(t, `read -r line; sleep 30`), WorkDir: t.TempDir(), Timeout: 5 * time.Second}, "s-9")
 	if err != nil {
 		t.Fatal(err)
@@ -131,5 +135,44 @@ func TestSessionMetaDuringATurn(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("ID/Idle blocked behind a running turn")
+	}
+}
+
+// a fake that stops a turn on an interrupt request, like stream-json mode does
+const fakeInterruptibleClaude = `while IFS= read -r line; do
+  case "$line" in
+    *control_request*)
+      echo '{"type":"control_response","response":{"subtype":"success","request_id":"stop-1"}}'
+      echo '{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"s-1","total_cost_usd":0.02}';;
+    *"long errand"*)
+      echo '{"type":"system","subtype":"init","session_id":"s-1"}'
+      echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__fo__ask_fo","input":{"message":"browse"}}]}}';;
+    *)
+      echo '{"type":"result","subtype":"success","is_error":false,"result":"still here","session_id":"s-1","total_cost_usd":0.03}';;
+  esac
+done`
+
+func TestSessionStopKeepsTheConversation(t *testing.T) {
+	t.Setenv("FAKE_DIR", t.TempDir())
+	s, err := StartSession(Options{ClaudePath: fakeClaude(t, fakeInterruptibleClaude), WorkDir: t.TempDir()}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx, stop := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); stop() }() // a tap on the device
+	res, err := s.Turn(ctx, "a long errand", nil)
+	if !errors.Is(err, context.Canceled) || res.SessionID != "s-1" {
+		t.Fatalf("stopped turn = %+v, %v", res, err)
+	}
+	if !s.Alive() || s.ID() != "s-1" {
+		t.Fatal("the session should survive a stop")
+	}
+	res, err = s.Turn(context.Background(), "and then?", nil)
+	if err != nil || res.Reply != "still here" {
+		t.Fatalf("next turn = %+v, %v", res, err)
+	}
+	if d := res.CostUSD - 0.01; d < -1e-9 || d > 1e-9 {
+		t.Errorf("next turn cost %v, want 0.01 (the stopped turn's 0.02 counted already)", res.CostUSD)
 	}
 }

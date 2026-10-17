@@ -37,6 +37,7 @@ type Session struct {
 
 	mu       sync.Mutex // one turn at a time (held for the whole turn)
 	lastCost float64    // the result's total_cost_usd is a running total for the process
+	stops    int        // interrupt requests sent
 
 	meta     sync.Mutex // id and lastUsed: readable while a turn runs, so a long turn never blocks ID or Idle
 	id       string     // Claude's session id, known after the first turn
@@ -136,8 +137,9 @@ func (s *Session) Idle() time.Duration {
 }
 
 // Turn sends one message and waits for Claude's reply, streaming events as in
-// Run. A turn that times out or is cancelled kills the process: the session is
-// then closed and the caller should start a new one.
+// Run. A turn that is cancelled or times out is interrupted, and the session
+// carries on with the conversation; only if Claude doesn't stop is the process
+// killed (then the session is closed and the caller should start a new one).
 func (s *Session) Turn(ctx context.Context, text string, onEvent func(Event)) (Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -177,12 +179,16 @@ func (s *Session) Turn(ctx context.Context, text string, onEvent func(Event)) (R
 			}
 			p.handleLine(line)
 		case <-ctx.Done():
-			s.kill()
 			p.flushPending()
 			what := "canceled"
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				what = fmt.Sprintf("timed out after %s", timeout)
 			}
+			if s.interrupt() { // stopped, and the conversation carries on in the same process
+				p.res.SessionID = s.ID()
+				return p.res, fmt.Errorf("agent: turn %s: %w", what, ctx.Err())
+			}
+			s.kill()
 			return p.res, fmt.Errorf("agent: turn %s: %w%s", what, ctx.Err(), s.stderr.suffix())
 		}
 	}
@@ -198,6 +204,54 @@ func (s *Session) Turn(ctx context.Context, text string, onEvent func(Event)) (R
 		s.meta.Unlock()
 	}
 	return res, p.turnErr
+}
+
+// interruptWait is how long a stopped turn may take to wind down before the
+// process is killed instead.
+var interruptWait = 5 * time.Second
+
+// interrupt asks Claude to stop the turn in progress (a stream-json control
+// request) and waits for that turn's result, so the process and the
+// conversation survive. The stopped turn's events are dropped. False if
+// Claude didn't stop in time.
+func (s *Session) interrupt() bool {
+	s.stops++
+	req, _ := json.Marshal(map[string]any{
+		"type":       "control_request",
+		"request_id": fmt.Sprintf("stop-%d", s.stops),
+		"request":    map[string]any{"subtype": "interrupt"},
+	})
+	if _, err := s.stdin.Write(append(req, '\n')); err != nil {
+		return false
+	}
+	deadline := time.After(interruptWait)
+	for {
+		select {
+		case line, ok := <-s.lines:
+			if !ok {
+				return false
+			}
+			var l struct {
+				Type         string   `json:"type"`
+				SessionID    string   `json:"session_id"`
+				TotalCostUSD *float64 `json:"total_cost_usd"`
+			}
+			if json.Unmarshal(line, &l) != nil || l.Type != "result" {
+				continue
+			}
+			if l.TotalCostUSD != nil && *l.TotalCostUSD >= s.lastCost {
+				s.lastCost = *l.TotalCostUSD
+			}
+			if l.SessionID != "" {
+				s.meta.Lock()
+				s.id = l.SessionID
+				s.meta.Unlock()
+			}
+			return true
+		case <-deadline:
+			return false
+		}
+	}
 }
 
 // Close ends the process: politely (end of input) and then by force.
