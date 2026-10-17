@@ -96,6 +96,13 @@ static void onCommand(const char *j) {
     jsonStr(j, "text", v.remindText, sizeof v.remindText);
     femiUnlock();
     playerSfx(SFX_BELL);
+  } else if (!strcmp(type, "reminder_done")) {   // acknowledged by voice in a normal request: close its card
+    char id[16] = "";
+    jsonStr(j, "id", id, sizeof id);
+    femiLock();
+    FemiView &v = femiView();
+    if (v.remind && (!id[0] || !strcmp(id, v.remindId))) v.remind = false;   // the loop then stops its bell and repeats
+    femiUnlock();
   } else if (!strcmp(type, "image")) {
     imageBytes = min((uint32_t)jsonInt(j, "bytes", 0), (uint32_t)(PHOTO_W * PHOTO_H * 2));
     imageAt = 0;
