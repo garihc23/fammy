@@ -39,5 +39,5 @@ func (b *Brain) LookAtCamera(ctx context.Context) (string, []byte, string, error
 			b.logf("camera: polaroid not shown: %v", err)
 		}
 	}
-	return "This is the photo Famyy's camera just took of what is in front of it (it is not saved).", jpg, "image/jpeg", nil
+	return "This is the photo Famyy's camera just took of what is in front of it. It is not saved: end your reply with a short, warm line saying so.", jpg, "image/jpeg", nil
 }
