@@ -101,7 +101,7 @@ func ParseStream(r io.Reader, onEvent func(Event)) (Result, error) {
 	if onEvent == nil {
 		onEvent = func(Event) {}
 	}
-	p := &parser{emit: onEvent, tools: map[string]string{}}
+	p := newParser(onEvent)
 	br := bufio.NewReaderSize(r, 64<<10)
 	for {
 		line, err := br.ReadBytes('\n')
@@ -121,6 +121,13 @@ func ParseStream(r io.Reader, onEvent func(Event)) (Result, error) {
 		return p.res, ErrNoResult
 	}
 	return p.res, p.turnErr
+}
+
+func newParser(onEvent func(Event)) *parser {
+	if onEvent == nil {
+		onEvent = func(Event) {}
+	}
+	return &parser{emit: onEvent, tools: map[string]string{}}
 }
 
 func (p *parser) handleLine(line []byte) {

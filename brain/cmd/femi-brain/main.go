@@ -136,7 +136,7 @@ func main() {
 		}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // SIGHUP: its terminal tab closed
 	defer stop()
 
 	// Femi's MCP tools, local only.
@@ -156,6 +156,8 @@ func main() {
 		}
 	}()
 	log.Printf("tools: MCP on http://%s/mcp (%d tools)", toolsAddr, len(femi.ToolNames()))
+	thinker.start() // Claude connects to the tools as it starts, so only now
+	log.Printf("claude: a session is warming up (%s, %s effort, on the %s)", cfg.model, cfg.effort, cfg.auth)
 
 	linkLn, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.port))
 	if err != nil {
@@ -179,6 +181,7 @@ func main() {
 
 	<-ctx.Done()
 	log.Printf("shutting down")
+	thinker.Close()
 	shut, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shut)

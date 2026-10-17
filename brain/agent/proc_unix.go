@@ -11,6 +11,7 @@ import (
 // also kills anything it spawned (e.g. stdio MCP servers).
 func configureProcess(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	dieWithParent(cmd.SysProcAttr)
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil
