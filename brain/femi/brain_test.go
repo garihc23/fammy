@@ -756,3 +756,20 @@ func TestShowListAndReplayCall(t *testing.T) {
 		t.Errorf("replay say = %+v, want %d bytes and no listening after", say, want)
 	}
 }
+
+func TestQuietReplyAfterDecline(t *testing.T) {
+	b, dev := newBrain(t, replyThinker("[quiet]"), nil)
+	b.DeviceFrame(textEvent("call the salon"))
+	r := dev.waitFor(t, "an empty say", func(r rec) bool { return r.Kind == "say" })
+	if r.Text != "" || r.Bytes != 0 || r.Listen {
+		t.Errorf("quiet reply sent %+v, want an empty say that doesn't listen", r)
+	}
+	for _, s := range []string{"[quiet]", "quiet", " [Quiet]. "} {
+		if !quietReply(s) {
+			t.Errorf("quietReply(%q) = false", s)
+		}
+	}
+	if quietReply("Quiet hours start at ten.") {
+		t.Error("a real reply about quiet hours was treated as quiet")
+	}
+}

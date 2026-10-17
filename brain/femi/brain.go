@@ -519,6 +519,11 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	b.mu.Unlock()
 
 	reply := Spoken(res.Reply)
+	if quietReply(reply) { // the device already said it ("Okay, I won't."): end the turn without a word
+		b.logf("turn %d done: quiet | turn %dms, $%.4f | events [%s]", n, took.Milliseconds(), res.CostUSD, strings.Join(events, ","))
+		_ = b.cfg.Device.Say(ctx, b.nextSayID(), "", nil, false) // an empty reply still ends the device's busy state
+		return
+	}
 	if reply == "" {
 		reply = "Done."
 	}
@@ -681,6 +686,18 @@ func (b *Brain) speak(ctx context.Context, text string, cache, listen bool) time
 		b.logf("say %s %q: %v", id, text, err)
 	}
 	return took
+}
+
+// quietReply is Claude's way to say nothing at all: "[quiet]".
+func quietReply(s string) bool {
+	return strings.EqualFold(strings.Trim(strings.TrimSpace(s), "[]. "), "quiet")
+}
+
+func (b *Brain) nextSayID() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.sayN++
+	return fmt.Sprintf("s%d", b.sayN)
 }
 
 // closing is a whole request that just ends the conversation: "thanks", "that's all", "bye Famyy", "no".
