@@ -1,0 +1,13 @@
+#pragma once
+#include "config.h"
+
+// The mailbox between the speech task (writes) and loop() (reads).
+// Each value is a single word, which this chip reads and writes atomically.
+// Defined in buddy.ino.
+extern volatile Face wanted;          // mood the face should show
+extern volatile bool listening;       // speech engine is waiting for a command
+extern volatile bool hackerMode;      // green theme
+extern volatile uint32_t moodUntil;   // when a timed mood (happy, thinking) ends
+extern volatile int timerReq;         // pending timer request (REQ_* or minutes)
+extern volatile Ask asking;           // open question a spoken number would answer
+extern volatile int appReq;           // APP_* to start, APP_QUIT to leave, APP_NONE for nothing

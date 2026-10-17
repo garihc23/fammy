@@ -1,0 +1,11 @@
+# secrets: Wi-Fi password, API keys
+firmware/femi/secrets.h
+brain/.env
+# personal family data stays on this laptop
+family/photos/
+family/profile.yaml
+# builds
+build/
+*.bin
+*.elf
+brain/femi-brain
