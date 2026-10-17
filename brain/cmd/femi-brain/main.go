@@ -15,6 +15,10 @@
 //	FEMI_ACK_MINUTES   minutes before an unacknowledged reminder escalates (10)
 //	FEMI_MODEL         Claude model for turns (claude-haiku-5-5: the quickest to answer)
 //	FEMI_EFFORT        how hard Claude thinks before answering: low, medium, high (low)
+//	FEMI_AUTH          login (Claude Code's login; Fo through claude.ai) or key (ANTHROPIC_API_KEY, ~2 s faster
+//	                   per turn; claude.ai connectors are off, so Fo must be signed in directly: /mcp > fo)
+//	ANTHROPIC_API_KEY  with FEMI_AUTH=key
+//	ANTHROPIC_WORKSPACE_ID  for a key that isn't scoped to one workspace
 //	FEMI_EMOTION       how Famyy's voice sounds: content, calm, ... (content); "none" lets Cartesia choose
 package main
 
@@ -57,6 +61,9 @@ type config struct {
 	ackWindow   time.Duration
 	model       string
 	effort      string
+	auth        string
+	apiKey      string
+	workspace   string
 	emotion     string
 	promptPath  string
 }
@@ -193,6 +200,9 @@ func loadConfig() (config, error) {
 		familyDir:   get("FAMILY_DIR", "/home/leog/femi/family"),
 		model:       get("FEMI_MODEL", "claude-haiku-5-5"),
 		effort:      get("FEMI_EFFORT", "low"),
+		auth:        get("FEMI_AUTH", "login"),
+		apiKey:      get("ANTHROPIC_API_KEY", ""),
+		workspace:   get("ANTHROPIC_WORKSPACE_ID", ""),
 		emotion:     get("FEMI_EMOTION", cartesia.DefaultEmotion),
 		promptPath:  get("FEMI_PROMPT", filepath.Join(brainDir, "prompt.md")),
 	}
@@ -208,7 +218,17 @@ func loadConfig() (config, error) {
 		return cfg, fmt.Errorf("FEMI_ACK_MINUTES must be a positive number of minutes")
 	}
 	cfg.ackWindow = time.Duration(ack * float64(time.Minute))
-	log.Printf("config: link :%d, tools 127.0.0.1:%d, family %s, ack %s, model %s at %s effort", cfg.port, cfg.toolsPort, cfg.familyDir, cfg.ackWindow, cfg.model, cfg.effort)
+	switch cfg.auth {
+	case "login":
+	case "key":
+		if cfg.apiKey == "" {
+			return cfg, fmt.Errorf("FEMI_AUTH=key needs ANTHROPIC_API_KEY")
+		}
+	default:
+		return cfg, fmt.Errorf("FEMI_AUTH must be login or key, not %q", cfg.auth)
+	}
+	log.Printf("config: link :%d, tools 127.0.0.1:%d, family %s, ack %s, model %s at %s effort, claude on the %s",
+		cfg.port, cfg.toolsPort, cfg.familyDir, cfg.ackWindow, cfg.model, cfg.effort, cfg.auth)
 	return cfg, nil
 }
 
@@ -258,4 +278,17 @@ func lanIPs() [][2]string {
 		}
 	}
 	return out
+}
+
+// claudeEnv is what the Claude child needs on top of the brain's environment
+// to run on the API key, or nothing for the login.
+func (c config) claudeEnv() []string {
+	if c.auth != "key" {
+		return nil
+	}
+	env := []string{"ANTHROPIC_API_KEY=" + c.apiKey}
+	if c.workspace != "" {
+		env = append(env, "ANTHROPIC_CUSTOM_HEADERS=anthropic-workspace-id: "+c.workspace)
+	}
+	return env
 }

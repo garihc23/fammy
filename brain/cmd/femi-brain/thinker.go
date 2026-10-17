@@ -41,6 +41,7 @@ func newThinkers(system string, cfg config) (femi.Thinker, femi.Thinker) {
 		ExtraAllowedTools: allowed,
 		Model:             cfg.model,
 		Effort:            cfg.effort,
+		Env:               cfg.claudeEnv(),
 		WorkDir:           workDir,
 		Timeout:           turnBudget,
 	}

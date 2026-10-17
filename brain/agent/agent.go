@@ -49,6 +49,7 @@ type Options struct {
 	ExtraAllowedTools []string // allowed in addition to FoTools
 	Model             string   // optional (--model)
 	Effort            string   // optional (--effort): low, medium, high; low answers fastest
+	Env               []string // extra KEY=VALUE for the child, e.g. ANTHROPIC_API_KEY to run on an API key instead of the login
 	WorkDir           string   // cwd for the child; default <tmp>/femi-agent. Keep it stable: --resume finds sessions per cwd.
 	Timeout           time.Duration
 	ClaudePath        string   // claude binary; default "claude" from PATH
@@ -96,7 +97,7 @@ func Run(ctx context.Context, opts Options, sessionID string, userText string, o
 
 	cmd := exec.CommandContext(ctx, bin, buildArgs(opts, sessionID)...)
 	cmd.Dir = workDir
-	cmd.Env = childEnv(os.Environ())
+	cmd.Env = append(childEnv(os.Environ()), opts.Env...)
 	cmd.Stdin = strings.NewReader(userText) // prompt via stdin: --allowedTools/--mcp-config are variadic and would swallow a positional prompt
 	stderr := &tailBuffer{max: 16 << 10}
 	cmd.Stderr = stderr
