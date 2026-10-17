@@ -483,6 +483,10 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 		b.logf("turn %d: idle for %s, starting a fresh conversation", n, now.Sub(b.lastTurn).Round(time.Minute))
 		b.session = ""
 	}
+	if b.session != "" && startOver.MatchString(text) {
+		b.logf("turn %d: asked to start over, starting a fresh conversation", n)
+		b.session = ""
+	}
 	session := b.session
 	b.mu.Unlock()
 
@@ -525,7 +529,10 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 
 	if err != nil {
 		b.mu.Lock()
-		b.session = res.SessionID // keep the conversation if it got far enough to have one
+		if res.SessionID != "" { // a stop or a failure keeps the conversation; only idle time or "start over" ends it
+			b.session = res.SessionID
+		}
+		b.lastTurn = b.cfg.Now()
 		b.mu.Unlock()
 		if stopped(ctx) {
 			b.logf("turn %d stopped after %dms (events %s)", n, took.Milliseconds(), strings.Join(events, ","))
@@ -765,6 +772,10 @@ func dropLoops(s string) string {
 	}
 	return s
 }
+
+// startOver: the person wants a clean slate ("start over", "new conversation", "forget all that").
+var startOver = regexp.MustCompile(`(?i)\b(?:start (?:over|again|afresh|from scratch)|new conversation|fresh start|clean slate|` +
+	`forget (?:that|this|everything|all (?:of )?that|what i said))\b`)
 
 // quietReply is Claude's way to say nothing at all: "[quiet]".
 func quietReply(s string) bool {

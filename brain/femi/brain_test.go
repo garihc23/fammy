@@ -924,3 +924,59 @@ func TestStatusShowsATurnInFlight(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A stop (or a failure) never loses the conversation; "start over" does.
+func TestConversationSurvivesAStop(t *testing.T) {
+	gate := make(chan struct{})
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		switch n {
+		case 1:
+			return Result{Reply: "Teal is lovely.", SessionID: "sess-1"}, nil
+		case 2:
+			close(gate)
+			<-ctx.Done() // stopped before Claude reported anything
+			return Result{}, ctx.Err()
+		}
+		return Result{Reply: fmt.Sprintf("reply %d", n), SessionID: "sess-1"}, nil
+	}}
+	b, dev := newBrain(t, th, nil)
+	b.DeviceFrame(textEvent("my favourite colour is teal"))
+	dev.waitFor(t, "first reply", isSay("Teal is lovely."))
+	b.DeviceFrame(textEvent("write me a long story"))
+	<-gate
+	b.DeviceFrame(link.Frame{Type: link.TypeEvent, Payload: []byte(`{"type":"stop"}`)})
+	deadline := time.Now().Add(3 * time.Second)
+	for !b.tryTurn() { // the stopped turn lets go of the slot
+		if time.Now().After(deadline) {
+			t.Fatal("the stopped turn still holds the slot")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	b.endTurn()
+	b.DeviceFrame(textEvent("what's my favourite colour?"))
+	dev.waitFor(t, "third reply", isSay("reply 3"))
+	if c := th.Calls(); len(c) != 3 || c[2].Session != "sess-1" {
+		t.Fatalf("after a stop the next turn should continue sess-1: %+v", c)
+	}
+	b.DeviceFrame(textEvent("okay, let's start over"))
+	dev.waitFor(t, "fourth reply", isSay("reply 4"))
+	calls := th.Calls()
+	if last := calls[len(calls)-1]; last.Session != "" {
+		t.Errorf("\"start over\" should begin a fresh conversation, got session %q", last.Session)
+	}
+}
+
+func TestStartOverPhrases(t *testing.T) {
+	for s, want := range map[string]bool{
+		"let's start over":         true,
+		"Forget all that.":         true,
+		"new conversation please":  true,
+		"start the timer":          false,
+		"don't forget my medicine": false,
+		"what did we talk about?":  false,
+	} {
+		if got := startOver.MatchString(s); got != want {
+			t.Errorf("startOver(%q) = %v, want %v", s, got, want)
+		}
+	}
+}
