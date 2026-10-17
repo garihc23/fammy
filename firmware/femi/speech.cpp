@@ -3,6 +3,7 @@
 #include "speech.h"
 #include "shared.h"
 #include "voice.h"
+#include "clips.h"
 #include "net.h"
 
 enum {
@@ -113,6 +114,11 @@ static void onWake() {
     speechPause();
     if (!voiceStart("wake")) speechRearm();
     return;
+  }
+  static uint32_t toldOffline = 0;
+  if (!netUp() && (toldOffline == 0 || millis() - toldOffline > 60000)) {   // say so, at most once a minute
+    toldOffline = millis();
+    playerClip(CLIP_OFFLINE);
   }
   listening = true;
   wanted = LISTENING;

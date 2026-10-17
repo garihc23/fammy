@@ -12,3 +12,4 @@ build/
 brain/femi-brain
 qa/voice/
 qa/recordings/
+firmware/preview/out/

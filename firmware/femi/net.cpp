@@ -4,6 +4,7 @@
 #include "voice.h"
 #include "shared.h"
 #include "config.h"
+#include "fo.h"
 #include "secrets.h"
 
 // Small control frames go through a queue so any task can send; the link task is the only writer on the socket.
@@ -30,7 +31,10 @@ static void setUp(bool u) {
   femiLock();
   FemiView &v = femiView();
   v.linkUp = u;
-  if (!u) v.busy = v.approve = false;   // anything in flight is lost with the link
+  if (!u) {   // anything in flight is lost with the link
+    v.busy = v.approve = false;
+    v.foState = FO_OFF;
+  }
   femiUnlock();
   Serial.println(u ? ">> brain connected" : ">> brain disconnected");
 }
@@ -112,6 +116,21 @@ static void onCommand(const char *j) {
     jsonStr(j, "name", s, sizeof s);
     if (!strcmp(s, "game")) appReq = APP_RUNNER;
     if (!strcmp(s, "morse")) appReq = APP_MORSE;
+  } else if (!strcmp(type, "fo")) {   // Fo's visit: {"type":"fo","state":"start","task":"call"}, then "done" with "ok"
+    jsonStr(j, "state", s, sizeof s);
+    femiLock();
+    FemiView &v = femiView();
+    if (!strcmp(s, "start") && v.foState != FO_WORKING) {   // a follow-up to Fo while it's here keeps the same visit
+      char task[16] = "";
+      jsonStr(j, "task", task, sizeof task);
+      v.foState = FO_WORKING;
+      v.foTask = foTaskFromName(task);
+      v.foCalledAt = now;
+    } else if (!strcmp(s, "done") && v.foState == FO_WORKING) {
+      v.foState = jsonBool(j, "ok", false) ? FO_DONE : FO_FAILED;
+      v.foSince = now;
+    }
+    femiUnlock();
   } else if (!strcmp(type, "theme")) {
     jsonStr(j, "name", s, sizeof s);
     hackerMode = !strcmp(s, "hacker");

@@ -401,9 +401,11 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 		case "tool_call":
 			if e.Tool == "ask_fo" {
 				line = "Asking Fo…"
+				b.commandAsync(foCommand{Type: "fo", State: "start", Task: foTask(e.Text)}) // Fo walks onto the screen
 			}
 		case "fo_done":
 			face, line = "thinking", "Fo is done"
+			b.commandAsync(foCommand{Type: "fo", State: "done", OK: e.Status != "failed"}) // hands over the result and leaves
 		}
 		if line != "" && line != lastLine {
 			lastLine = line
@@ -443,6 +445,46 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	tts := b.speak(ctx, reply, false)
 	b.logf("turn %d done: reply %q | stt %dms, turn %dms, tts %dms, $%.4f | events [%s]",
 		n, reply, stt.Milliseconds(), took.Milliseconds(), tts.Milliseconds(), res.CostUSD, strings.Join(events, ","))
+}
+
+// foCommand tells the device about Fo's visit: "start" (with the kind of job,
+// for the icon Fo works under) and "done".
+type foCommand struct {
+	Type  string `json:"type"`
+	State string `json:"state"`
+	Task  string `json:"task,omitempty"`
+	OK    bool   `json:"ok"`
+}
+
+// foTasks maps words in a request to Fo onto the icon for that kind of job;
+// the first match wins, anything else is a web look-up.
+var foTasks = []struct {
+	task string
+	re   *regexp.Regexp
+}{
+	{"call", regexp.MustCompile(`(?i)\b(call|phone|ring|dial)\b`)},
+	{"message", regexp.MustCompile(`(?i)\b(text|sms|whatsapp|message)\b`)},
+	{"email", regexp.MustCompile(`(?i)\b(e-?mail|mail|inbox)\b`)},
+	{"shop", regexp.MustCompile(`(?i)\b(order|buy|purchase|shop|cart|deliver\w*)\b`)},
+	{"calendar", regexp.MustCompile(`(?i)\b(calendar|book|booking|appointment|schedule|meeting|reserv\w*)\b`)},
+}
+
+func foTask(request string) string {
+	for _, t := range foTasks {
+		if t.re.MatchString(request) {
+			return t.task
+		}
+	}
+	return "web"
+}
+
+// commandAsync queues a COMMAND in order with STATE updates, without blocking the caller.
+func (b *Brain) commandAsync(v any) {
+	select {
+	case b.out <- func() { _ = b.cfg.Device.Command(v) }:
+	default:
+		b.logf("state queue full, dropping command %+v", v)
+	}
 }
 
 // stateAsync queues a STATE update without blocking the caller.

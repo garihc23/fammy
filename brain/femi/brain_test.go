@@ -583,3 +583,18 @@ func TestTooShortIgnoresSoundTags(t *testing.T) {
 		}
 	}
 }
+
+func TestFoTask(t *testing.T) {
+	for req, want := range map[string]string{
+		"Asking Fo: Call the salon and book a haircut for Saturday": "call",
+		"Asking Fo: Text Priya that dinner is at 8":                 "message",
+		"Asking Fo: Check my email for the flight confirmation":     "email",
+		"Asking Fo: Order two samosas from the usual place":         "shop",
+		"Asking Fo: Book a table for four tomorrow at 7":            "calendar",
+		"Asking Fo: What's the weather in Bengaluru today?":         "web",
+	} {
+		if got := foTask(req); got != want {
+			t.Errorf("foTask(%q) = %q, want %q", req, got, want)
+		}
+	}
+}
