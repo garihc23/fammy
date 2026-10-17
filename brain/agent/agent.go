@@ -159,12 +159,13 @@ func buildArgs(opts Options, sessionID string) []string {
 
 // childEnv drops variables inherited from a surrounding Claude desktop/Code
 // session (CLAUDE*, CLAUDECODE, ANTHROPIC_BASE_URL); passing them makes the
-// child fail with "OAuth session expired". ANTHROPIC_API_KEY is kept.
+// child fail with "OAuth session expired". MCP_CONNECTION_NONBLOCKING is dropped
+// too, so a turn never starts before Fo has connected. ANTHROPIC_API_KEY is kept.
 func childEnv(environ []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "CLAUDE") || k == "ANTHROPIC_BASE_URL" {
+		if strings.HasPrefix(k, "CLAUDE") || k == "ANTHROPIC_BASE_URL" || k == "MCP_CONNECTION_NONBLOCKING" {
 			continue
 		}
 		out = append(out, kv)
