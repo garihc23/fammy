@@ -773,3 +773,19 @@ func TestQuietReplyAfterDecline(t *testing.T) {
 		t.Error("a real reply about quiet hours was treated as quiet")
 	}
 }
+
+func TestDropLoops(t *testing.T) {
+	for in, want := range map[string]string{
+		strings.Repeat("He will kill you. ", 7):                "",
+		"What's the weather? Thank you. Thank you. Thank you.": "What's the weather?",
+		"thank you thank you thank you thank you":              "",
+		"Call Aditya and tell him I'm late.":                   "Call Aditya and tell him I'm late.",
+		"No, no, no.":                                          "No, no, no.",
+		"Yes. Yes.":                                            "Yes. Yes.",
+		"Remind me at 8. Remind me at 9. Remind me at 10.":     "Remind me at 8. Remind me at 9. Remind me at 10.",
+	} {
+		if got := dropLoops(in); got != want {
+			t.Errorf("dropLoops(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

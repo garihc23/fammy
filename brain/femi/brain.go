@@ -403,6 +403,10 @@ func (b *Brain) utterance(pcm []byte, trigger string) {
 		didntCatch()
 		return
 	}
+	if t := dropLoops(text); t != text {
+		b.logf("stt %dms: dropped a repeated phrase (transcriber looping on noise) from %q", stt.Milliseconds(), clip(text, 160))
+		text = t
+	}
 	if tooShort(text) {
 		b.logf("stt %dms: %q is too short", stt.Milliseconds(), text)
 		didntCatch()
@@ -686,6 +690,55 @@ func (b *Brain) speak(ctx context.Context, text string, cache, listen bool) time
 		b.logf("say %s %q: %v", id, text, err)
 	}
 	return took
+}
+
+var (
+	sentence = regexp.MustCompile(`[^.!?]+[.!?]*`)
+	nonWord  = regexp.MustCompile(`[^\p{L}\p{N}']+`)
+)
+
+func words(s string) []string {
+	return strings.Fields(strings.ToLower(nonWord.ReplaceAllString(s, " ")))
+}
+
+// dropLoops removes a short sentence the transcriber wrote three or more times
+// ("He will kill you. He will kill you. ..."): Whisper does that on noise and
+// background talk. What the person really said around it is kept; a
+// transcript that is nothing but the loop becomes "".
+func dropLoops(s string) string {
+	parts := sentence.FindAllString(s, -1)
+	keys := make([]string, len(parts))
+	count := map[string]int{}
+	for i, p := range parts {
+		if w := words(p); len(w) > 0 && len(w) <= 10 {
+			keys[i] = strings.Join(w, " ")
+			count[keys[i]]++
+		}
+	}
+	var kept []string
+	looped := false
+	for i, p := range parts {
+		if keys[i] != "" && count[keys[i]] >= 3 {
+			looped = true
+			continue
+		}
+		kept = append(kept, strings.TrimSpace(p))
+	}
+	if looped {
+		return strings.Join(kept, " ")
+	}
+	// the same loop without punctuation: "thank you thank you thank you thank you"
+	w := words(s)
+	for unit := 2; unit <= 8 && unit*3 <= len(w) && len(w) >= 8; unit++ {
+		periodic := true
+		for i := unit; i < len(w) && periodic; i++ {
+			periodic = w[i] == w[i%unit]
+		}
+		if periodic {
+			return ""
+		}
+	}
+	return s
 }
 
 // quietReply is Claude's way to say nothing at all: "[quiet]".
