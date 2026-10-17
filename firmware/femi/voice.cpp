@@ -168,6 +168,7 @@ void playerBegin() {
   mic.begin(64 * 1024);        // 2 s of recording backlog
   spk.begin(512 * 1024);       // 16 s of reply audio
   amp.setPins(AMP_BCLK, AMP_LRC, AMP_DIN);
-  if (!amp.begin(I2S_MODE_STD, 16000, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO)) Serial.println("amp I2S FAILED");
+  // mono sound on BOTH channels: the amp plays left+right averaged, so left-only would be half as loud
+  if (!amp.begin(I2S_MODE_STD, 16000, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_BOTH)) Serial.println("amp I2S FAILED");
   xTaskCreatePinnedToCore(playerTask, "player", 4096, nullptr, 4, nullptr, 0);
 }

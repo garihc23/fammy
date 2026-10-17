@@ -11,7 +11,7 @@ const int AMP_BCLK = 15, AMP_LRC = 16, AMP_DIN = 7;      // I2S bus 1: MAX98357 
 
 // ---------- Femi ----------
 const bool HEY_FAMYY = true;         // wake phrase "hey Famyy" (always-on command recogniser); false = Espressif's "Hi ESP"
-const float SPEAKER_VOLUME = 0.6f;   // 0..1 of full scale: the amp is loud
+const float SPEAKER_VOLUME = 0.8f;   // 0..1 of full scale
 
 // display speed: 10 MHz is safe on long jumper wires; try 20-40 MHz once the wires are short
 const uint32_t TFT_SPI_HZ = 40000000;
