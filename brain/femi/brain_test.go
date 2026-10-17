@@ -493,7 +493,7 @@ func TestReminderFireAckAndEscalate(t *testing.T) {
 	// Medication with escalation, never acked.
 	med, _ := sched.AddDaily("09:30", "Asha", "Metformin 500 mg", "Rahul", now)
 	sched.Tick(time.Date(2026, 10, 17, 9, 30, 0, 0, time.Local))
-	dev.waitFor(t, "medicine spoken", isSay("Asha, it's time for your Metformin 500 mg. Tap me when you've taken it."))
+	dev.waitFor(t, "medicine spoken", isSay("Asha, it's time for your Metformin 500 mg."))
 	sched.Tick(time.Date(2026, 10, 17, 9, 40, 0, 0, time.Local))
 	dev.waitFor(t, "escalation state", func(r rec) bool { return r.Kind == "state" && r.Face == "working" && r.Line == "Texting Rahul…" })
 	dev.waitFor(t, "escalation done", func(r rec) bool { return r.Kind == "state" && r.Line == "Rahul was told" })

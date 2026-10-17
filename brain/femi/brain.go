@@ -811,7 +811,7 @@ func (b *Brain) reminderFired(r remind.Reminder) {
 			if who == "" {
 				who = "Hello"
 			}
-			spoken = fmt.Sprintf("%s, it's time for your %s. Tap me when you've taken it.", who, r.Text)
+			spoken = fmt.Sprintf("%s, it's time for your %s.", who, r.Text) // the device then says how to acknowledge ("say done, or tap me")
 		}
 		b.speak(context.Background(), strings.ReplaceAll(spoken, "..", "."), false, false)
 	}()
