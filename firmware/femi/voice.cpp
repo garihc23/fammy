@@ -46,6 +46,9 @@ bool voiceStart(const char *trigger) {
   snprintf(j, sizeof j, "{\"rate\":16000,\"trigger\":\"%s\"}", trigger);
   netSend(F_AUDIO_START, j);   // queued before any audio, so the brain sees START first
   setBusy(true);
+  femiLock();
+  femiView().heard[0] = 0;     // a new request: forget what was heard last time
+  femiUnlock();
   listening = true;
   recording = true;
   playerChime(true);

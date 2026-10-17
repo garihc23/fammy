@@ -48,33 +48,6 @@ void setup() {
   randomSeed(esp_random());
 }
 
-// the caption a screenful at a time (whole words, ~20 characters), in step with the audio
-static void captionPage(const FemiView &v, uint32_t now, char *out, size_t n) {
-  const int PAGE = 20;
-  const char *starts[24];
-  int pages = 0;
-  for (const char *p = v.caption; *p && pages < 24;) {
-    while (*p == ' ') p++;
-    if (!*p) break;
-    starts[pages++] = p;
-    int len = strlen(p), cut = min(len, PAGE);
-    if (len > PAGE) {
-      int sp = cut;
-      while (sp > 0 && p[sp] != ' ') sp--;
-      if (sp > 0) cut = sp;
-    }
-    p += cut;
-  }
-  if (pages == 0) {
-    out[0] = 0;
-    return;
-  }
-  int page = min(pages - 1, (int)((uint64_t)(now - v.speakSince) * pages / max(v.speakMs, (uint32_t)1)));
-  const char *s = starts[page];
-  int len = page + 1 < pages ? starts[page + 1] - s : strlen(s);
-  snprintf(out, n, "%.*s", min(len, PAGE), s);
-}
-
 // Fo's visit, with a sound for each moment, each played once per visit
 static void foCues(const FoPose &p, uint32_t calledAt) {
   static uint32_t visit = 0;
@@ -121,7 +94,7 @@ void loop() {
 
   // Fo on the stage, and its sounds
   faceSetFo((FoState)v.foState, v.foCalledAt, v.foSince, (FoTask)v.foTask);
-  FoPose fo = foPose(now, (FoState)v.foState, v.foCalledAt, v.foSince);
+  FoPose fo = foPose(now, (FoState)v.foState, v.foCalledAt, v.foSince, 160);   // only its timing matters here
   foCues(fo, v.foCalledAt);
 
   // hello, the first time the brain is reachable
@@ -261,25 +234,19 @@ void loop() {
     wanted = listening ? LISTENING : IDLE;
     f = wanted;
   }
-  char termText[48];
-  const char *tt = nullptr;
   if (timerPhase() == T_DONE) {
     f = ALARM;   // a finished timer beats everything
   } else if (voiceRecording()) {
     f = LISTENING;
   } else if (v.speaking) {
     f = TALKING;
-    captionPage(v, now, termText, sizeof termText);
-    tt = termText;
   } else if (v.busy) {
     f = v.face == BF_WORKING ? WORKING : THINKING;
-    if (v.line[0]) {
-      strlcpy(termText, v.line, sizeof termText);
-      tt = termText;
-    }
   } else if (f == IDLE && timerPhase() == T_FOCUS && !timerPaused()) {
     f = FOCUS;
   }
-  faceFrame(now, f, tt);
+  // words for the bubbles: what was heard, how it's going, and what Famyy is saying
+  Words words = {v.heard, v.heardSince, v.busy ? v.line : "", v.caption, v.speakSince, v.speakMs};
+  faceFrame(now, f, words);
   delay(10);   // give the speech tasks room to breathe
 }

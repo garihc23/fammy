@@ -7,6 +7,8 @@
 #include "voice.h"
 #include "creature.h"
 #include "fo.h"
+#include "words.h"
+#include <Fonts/FreeSans9pt7b.h>
 
 struct Drop { int x; float y, v; };
 struct Theme {
@@ -14,6 +16,7 @@ struct Theme {
   uint16_t good, bad, warn, accent;   // colours for apps (games, morse) and small highlights
   uint16_t wall, roof, door, blush;   // Famyy, the little house
   uint16_t fo, foInk;                 // Fo
+  uint16_t bubble;                    // inside speech bubbles and thought clouds
   bool hacker;                        // code rain and signal glitches
   const char *prompt, *prefix;        // top bar; what starts the bottom line
   const char *quips[5];
@@ -31,6 +34,7 @@ static const Theme NORMAL = {
   rgb565(70, 170, 100), rgb565(220, 80, 70), rgb565(230, 150, 40), rgb565(240, 120, 80),
   rgb565(255, 178, 138), rgb565(214, 98, 74), rgb565(232, 140, 104), rgb565(255, 160, 160),
   rgb565(255, 255, 255), rgb565(43, 36, 32),
+  rgb565(255, 255, 255),
   false,
   "Famyy", "",
   {"home sweet home", "say: hey Famyy", "tap me to talk", "here for the family", "all's well at home"},
@@ -43,6 +47,7 @@ static const Theme HACKER = {
   rgb565(57, 255, 122), rgb565(200, 255, 200), rgb565(30, 170, 80), rgb565(120, 255, 170),
   rgb565(6, 40, 18), rgb565(20, 110, 55), rgb565(10, 70, 32), rgb565(30, 150, 70),
   rgb565(200, 255, 215), rgb565(57, 255, 122),
+  0x0000,
   true,
   "root@famyy:~#", "> ",
   {"sudo make coffee", "nmap -sV localhost", "tail -f /var/log/life", "ssh famyy@home", "chmod +x brain.sh"},
@@ -53,7 +58,7 @@ static const Theme *th = &NORMAL;
 
 // screen zones, each drawn off-screen and pushed in one go
 static const int BODY_X = 50, BODY_Y = 24, BODY_W = 220, BODY_H = 172;   // apps and cards: the middle of the screen
-static const int STAGE_Y = 24, STAGE_H = 172;                             // the face: full width, so Fo has room to walk in
+static const int STAGE_Y = 24, STAGE_H = 216;                             // the face: the whole screen under the top bar
 static const int TERM_Y = 204, TERM_H = 36;
 
 static Adafruit_ST7789 tft(&SPI, TFT_CS, TFT_DC, TFT_RST);
@@ -66,18 +71,17 @@ static FoState foState = FO_OFF;
 static uint32_t foCalledAt = 0, foSince = 0;
 static FoTask foTask = TASK_WEB;
 
-// the terminal line types itself out
-static const uint32_t TYPE_MS = 18;   // per character
-static char typed[48];
-static uint32_t typedSince = 0;
-static bool typing = false;
+// words in bubbles
+static float homeX = HOME_X;
+static char shownStatus[96];
+static uint32_t statusSince = 0;
 
 // animation state
 static float gazeX = 0, gazeY = 0, gazeTX = 0, gazeTY = 0;
 static uint32_t nextGaze = 0, nextBlink = 2000, blinkStart = 0, nextGlitch = 4000, glitchUntil = 0;
 // what is on screen now, so each zone is only redrawn when it changes
 static uint32_t lastTerm = 0;
-static int shownTermFace = -1, shownTimerKey = -1;
+static int shownTimerKey = -1;
 static bool shownRec = false, shownDot = false, shownInvert = false, shownFps = false;
 
 // ---------- drawing helpers ----------
@@ -109,7 +113,9 @@ static Palette palette() {
   return {th->bg, th->ink, th->dim, th->rain, th->wall, th->roof, th->door, th->blush, th->good, th->accent, th->fo, th->foInk};
 }
 
-static void drawStage(uint32_t t, Face f, float blink) {
+static BubbleStyle bubbleStyle() { return {th->bubble, th->ink, th->ink, &FreeSans9pt7b}; }
+
+static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   GFXcanvas16 *c = stage;
   c->fillScreen(th->bg);
   c->drawFastHLine(0, GROUND_Y + 1, 320, th->rain);   // the floor
@@ -128,87 +134,56 @@ static void drawStage(uint32_t t, Face f, float blink) {
     }
   }
 
-  Look k = {160, f, blink, gazeX, gazeY, playerLevel(), listening, 0, 0};
-  FoPose p = foPose(t, foState, foCalledAt, foSince);
+  // a status line that changes starts typing again
+  const char *status = w.status ? w.status : "";
+  if (strncmp(status, shownStatus, sizeof shownStatus - 1) != 0) {
+    strlcpy(shownStatus, status, sizeof shownStatus);
+    statusSince = t;
+  }
+
+  // small remarks for the top bubble: a timer, a question, now and then a quip
+  char buf[32];
+  const char *say = nullptr;
+  if ((f == IDLE || f == FOCUS) && timerCounting()) {
+    uint32_t secs = (timerLeft(t) + 999) / 1000;
+    const char *label = timerPaused() ? "paused" : (timerPhase() == T_FOCUS ? th->focus : th->brk);
+    snprintf(buf, sizeof buf, "%s %02lu:%02lu", label, (unsigned long)(secs / 60), (unsigned long)(secs % 60));
+    say = buf;
+  } else if (f == ASKING) {
+    say = th->ask;
+  } else if (f == IDLE && t > 15000 && t % 30000 < 5000) {
+    say = th->quips[(t / 30000) % 5];
+  }
+  float meter = f != LISTENING ? -1 : voiceRecording() ? constrain((log10f(max(voiceLevel(), 100)) - 2.3f) / 1.7f, 0.1f, 1.0f) : 0.6f;
+
+  // Famyy steps aside for a big bubble, and back when it's gone
+  Scene sc = {f, &w, nullptr, (int)homeX, statusSince, meter, say};
+  FoPose p = foPose(t, foState, foCalledAt, foSince, (int)homeX);
+  sc.p = &p;
+  const char *text = nullptr;
+  int n = 0;
+  Side side = sideWords(t, sc, &text, &n);
+  homeX += ((side != SIDE_NONE ? HOME_X_BESIDE : HOME_X) - homeX) * 0.18f;
+  p = foPose(t, foState, foCalledAt, foSince, (int)homeX);
+  sc.homeX = (int)homeX;
+
+  Look k = {(int)homeX, f, blink, gazeX, gazeY, playerLevel(), listening, 0, 0};
   foPlaceFamyy(p, k);
   Palette pal = palette();
   drawFamyy(c, t, k, pal);
   foDraw(c, t, p, foTask, pal);
+  drawWords(c, t, sc, side, text, n, BubbleStyle{th->bubble, th->ink, th->ink, &FreeSans9pt7b});
   if (th->hacker && t < glitchUntil) glitch(c);
 
   tft.drawRGBBitmap(0, STAGE_Y, c->getBuffer(), 320, STAGE_H);
   stageShown = true;
 }
 
-// a card or an app draws only the middle of the screen: clear what the stage left at the sides
+// a card or an app draws only the middle of the screen: clear what the stage left around it
 static void leaveStage() {
   if (!stageShown) return;
-  tft.fillRect(0, STAGE_Y, BODY_X, STAGE_H, th->bg);
-  tft.fillRect(BODY_X + BODY_W, STAGE_Y, 320 - BODY_X - BODY_W, STAGE_H, th->bg);
+  tft.fillRect(0, STAGE_Y, 320, STAGE_H, th->bg);
   stageShown = false;
-}
-
-static void drawTerm(uint32_t t, Face f, const char *termText) {
-  GFXcanvas16 *c = term;
-  char buf[32];
-  const char *line = "";
-  bool timerLine = (f == IDLE || f == FOCUS) && timerCounting();
-  if (timerLine) {
-    uint32_t secs = (timerLeft(t) + 999) / 1000;
-    const char *label = timerPaused() ? "paused" : (timerPhase() == T_FOCUS ? th->focus : th->brk);
-    snprintf(buf, sizeof buf, "%s %02lu:%02lu", label, (unsigned long)(secs / 60), (unsigned long)(secs % 60));
-    line = buf;
-  } else {
-    switch (f) {
-      case IDLE:
-      case FOCUS:     line = th->quips[(t / 4000) % 5]; break;
-      case LISTENING: line = th->listening; break;
-      case HAPPY:     line = th->happy; break;
-      case THINKING:  snprintf(buf, sizeof buf, "%s %c", th->thinking, "|/-\\"[(t / 120) % 4]); line = buf; break;
-      case SLEEPING:  line = th->sleeping; break;
-      case ALARM:     line = th->done; break;
-      case ASKING:    line = th->ask; break;
-      case TALKING:
-      case WORKING:   line = ""; break;
-    }
-  }
-  if (termText && !timerLine) line = termText;
-  int shown = strlen(line);
-  typing = false;
-  if (!timerLine && (termText || f == IDLE || f == FOCUS)) {   // new text types itself out, like a terminal
-    if (strncmp(line, typed, sizeof typed - 1) != 0) {
-      strlcpy(typed, line, sizeof typed);
-      typedSince = t;
-    }
-    int n = (t - typedSince) / TYPE_MS + 1;
-    typing = n < shown;
-    shown = min(shown, n);
-  }
-  c->fillScreen(th->bg);
-  c->setTextSize(2);
-  c->setTextColor(th->ink);
-  c->setCursor(8, 10);
-  c->print(th->prefix);
-  char part[48];
-  snprintf(part, sizeof part, "%.*s", shown, line);
-  c->print(part);
-  if ((t / 500) % 2) c->print("_");
-  if (timerLine) {   // progress bar: one block per eighth of the time used
-    uint32_t total = timerTotal();
-    int filled = total ? (int)((total - timerLeft(t)) * 8 / total) : 0;
-    for (int i = 0; i < 8; i++) {
-      if (i < filled) c->fillRect(222 + i * 12, 12, 9, 14, th->ink);
-      else            c->drawRect(222 + i * 12, 12, 9, 14, th->dim);
-    }
-  }
-  if (f == LISTENING) {   // sound-wave meter: your real loudness while Femi records, otherwise decorative
-    float loud = voiceRecording() ? constrain((log10f(max(voiceLevel(), 100)) - 2.3f) / 1.7f, 0.1f, 1.0f) : 1.0f;
-    for (int i = 0; i < 12; i++) {
-      int h = 3 + (int)(fabsf(sinf(t / 120.0f + i * 0.8f) * sinf(t / 330.0f + i)) * 16 * loud);
-      c->fillRect(220 + i * 8, 30 - h, 5, h, th->ink);
-    }
-  }
-  tft.drawRGBBitmap(0, TERM_Y, c->getBuffer(), 320, TERM_H);
 }
 
 static void drawStatus() {
@@ -283,7 +258,6 @@ static void applyTheme() {
     th = want;
     tft.fillScreen(th->bg);
     drawStatus();
-    shownTermFace = -1;
     shownTimerKey = -2;
     shownRec = !listening;
   }
@@ -351,7 +325,6 @@ void faceAppFrame(uint32_t now, const App &app, float exitHold) {
     tft.drawRGBBitmap(0, TERM_Y, term->getBuffer(), 320, TERM_H);
     lastTerm = now;
   }
-  shownTermFace = -1;   // the face's own terminal line repaints when the app ends
   drawStatusTimer(now);
   drawRec(now);
 }
@@ -363,7 +336,7 @@ void faceSetFo(FoState state, uint32_t calledAt, uint32_t since, FoTask task) {
   foTask = task;
 }
 
-void faceFrame(uint32_t now, Face f, const char *termText) {
+void faceFrame(uint32_t now, Face f, const Words &words) {
   applyTheme();
   if (shownFps) {   // an app just ended: clear its frame-rate readout
     tft.fillRect(140, 4, 58, 14, th->bg);
@@ -388,6 +361,7 @@ void faceFrame(uint32_t now, Face f, const char *termText) {
   }
   float gx = gazeTX, gy = gazeTY;
   if (f == THINKING || f == WORKING) { gx = 16; gy = -12; }
+  if (f == TALKING)                 { gx = 8;  gy = -3; }    // towards its speech bubble
   if (f == ASKING)                  { gx = 10; gy = -8; }   // glancing up, waiting for your answer
   if (f == FOCUS)                   { gx = 0;  gy = 6; }    // eyes down on the work
   if (f == LISTENING || f == ALARM) { gx = 0;  gy = 0; }
@@ -399,12 +373,7 @@ void faceFrame(uint32_t now, Face f, const char *termText) {
     nextGlitch = now + (th == &HACKER ? random(1500, 4000) : random(5000, 11000));
   }
 
-  drawStage(now, f, blinkAmount(now));
-  if (f != shownTermFace || now - lastTerm >= (typing ? 40u : 100u)) {
-    drawTerm(now, f, termText);
-    lastTerm = now;
-    shownTermFace = f;
-  }
+  drawStage(now, f, blinkAmount(now), words);
   drawStatusTimer(now);
   drawRec(now);
 }
@@ -470,7 +439,6 @@ void faceCardFrame(uint32_t now, bool urgent, const char *title, const char *tex
     drawHint(now, hint);
     lastTerm = now;
   }
-  shownTermFace = -1;   // the face's own terminal line repaints afterwards
   drawStatusTimer(now);
   drawRec(now);
 }
@@ -497,7 +465,6 @@ void faceRepaint() {
   tft.fillScreen(th->bg);
   stageShown = false;
   drawStatus();
-  shownTermFace = -1;
   shownTimerKey = -2;
   shownRec = !listening;
   shownFps = false;

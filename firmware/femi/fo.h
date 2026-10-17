@@ -29,7 +29,8 @@ struct FoPose {
 const uint32_t FO_ENTER_MS = 1100, FO_SHAKE_MS = 800, FO_HANDOFF_MS = 1000, FO_LEAVE_MS = 1000;
 
 FoTask foTaskFromName(const char *name);   // "call" "message" "email" "shop" "calendar", anything else is web
-// the scene at time now: Fo was called at calledAt; state changed to done/failed at since
-FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since);
+// the scene at time now: Fo was called at calledAt; state changed to done/failed at since.
+// homeX is where Famyy stands when Fo isn't there (it moves aside to make room for a speech bubble).
+FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, int homeX);
 void foPlaceFamyy(const FoPose &p, Look &k);   // moves Famyy aside, turns its eyes to Fo, puts its hand out
 void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Palette &pal);

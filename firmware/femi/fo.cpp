@@ -3,7 +3,7 @@
 // Fo as Wajo draws it: thin black line art around a white squircle body, big solid oval eyes set
 // close together, a tiny U smile, thin arms with mitten hands (an open hand to wave), short chunky legs.
 
-static const int FAMYY_HOME = 160, FAMYY_ASIDE = 112;
+static const int FAMYY_ASIDE = 112;
 static const int FAMYY_HAND = FAMYY_ASIDE + 58, FAMYY_REACH = 30;   // Famyy's right hand, from creature.cpp
 static const int FO_HOME = 250, FO_AWAY = 380;
 static const int FO_W = 54, FO_H = 60, FO_TOP = GROUND_Y - FO_H - 17, FO_REACH = 14;
@@ -25,9 +25,9 @@ FoTask foTaskFromName(const char *s) {
   return TASK_WEB;
 }
 
-FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since) {
+FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, int homeX) {
   FoPose p = {};
-  p.famyyX = FAMYY_HOME;
+  p.famyyX = homeX;
   p.foX = FO_AWAY;
   if (state == FO_OFF) return p;
   uint32_t t = now - calledAt;
@@ -36,7 +36,7 @@ FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since) {
 
   // the arrival and the handshake always play in full, even if Fo answers very quickly
   if (state == FO_WORKING || t < workAt) {
-    p.famyyX = lerp(FAMYY_HOME, FAMYY_ASIDE, easeInOut(t / 600.0f));
+    p.famyyX = lerp(homeX, FAMYY_ASIDE, easeInOut(t / 600.0f));
     if (t < FO_ENTER_MS) {
       p.phase = PH_ENTER;
       p.tp = t;
@@ -101,7 +101,7 @@ FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since) {
     p.foWave = tl < 600;
     p.foWalk = tl >= 300;
     p.foX = lerp(FO_HOME, FO_AWAY, easeIn((tl - 250) / (float)(FO_LEAVE_MS - 250)));
-    p.famyyX = lerp(FAMYY_ASIDE, FAMYY_HOME, easeInOut((tl - 300) / 600.0f));
+    p.famyyX = lerp(FAMYY_ASIDE, homeX, easeInOut((tl - 300) / 600.0f));
     return p;
   }
   p.lookAtFo = false;

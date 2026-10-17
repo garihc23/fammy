@@ -116,6 +116,12 @@ static void onCommand(const char *j) {
     jsonStr(j, "name", s, sizeof s);
     if (!strcmp(s, "game")) appReq = APP_RUNNER;
     if (!strcmp(s, "morse")) appReq = APP_MORSE;
+  } else if (!strcmp(type, "heard")) {   // the full transcript, for the thought cloud
+    femiLock();
+    FemiView &v = femiView();
+    jsonStr(j, "text", v.heard, sizeof v.heard);
+    v.heardSince = now;
+    femiUnlock();
   } else if (!strcmp(type, "fo")) {   // Fo's visit: {"type":"fo","state":"start","task":"call"}, then "done" with "ok"
     jsonStr(j, "state", s, sizeof s);
     femiLock();

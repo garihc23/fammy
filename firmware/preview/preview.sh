@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Render a screen animation from the firmware's own drawing code into a GIF (see main.cpp).
-#   ./preview.sh fo|shrug|icons|faces [out.gif]
+#   ./preview.sh talk|fo|shrug|icons|faces [out.gif]
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 gfx="$HOME/Arduino/libraries/Adafruit_GFX_Library"
@@ -12,7 +12,7 @@ mkdir -p "$build" "$(dirname "$out")"
 rm -rf "$frames" && mkdir -p "$frames"
 
 g++ -std=c++17 -O2 -w -DARDUINO=100 -I"$here/stub" -I"$gfx" \
-  "$here/main.cpp" "$here/../femi/creature.cpp" "$here/../femi/fo.cpp" "$gfx/Adafruit_GFX.cpp" \
+  "$here/main.cpp" "$here/../femi/creature.cpp" "$here/../femi/fo.cpp" "$here/../femi/bubble.cpp" "$here/../femi/words.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$build/preview"
 "$build/preview" "$what" "$frames"
 ffmpeg -loglevel error -y -framerate 20 -i "$frames/f%04d.ppm" \

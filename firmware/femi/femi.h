@@ -10,7 +10,9 @@ struct FemiView {
   bool linkUp;                    // connected to the brain
   bool busy;                      // a request is in flight (from recording until Femi has answered)
   BrainFace face;                 // what the brain says Femi should look like
-  char line[40];                  // progress line for the terminal ("Calling the salon…")
+  char line[96];                  // progress line ("Fo: calling the salon"), shown in a bubble
+  char heard[304];                // what the person said, as the brain understood it
+  uint32_t heardSince;
   uint32_t faceSince;
 
   bool speaking;                  // a reply is playing

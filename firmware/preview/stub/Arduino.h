@@ -9,6 +9,7 @@
 #include "Print.h"
 
 typedef bool boolean;
+#define PROGMEM
 #ifndef PI
 #define PI 3.14159265358979f
 #endif
@@ -17,6 +18,7 @@ typedef bool boolean;
 #define radians(deg) ((deg) * PI / 180.0f)
 #define constrain(x, lo, hi) ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
 
+inline size_t strlcpy(char *d, const char *s, size_t n) { size_t l = strlen(s); if (n) { size_t k = l < n - 1 ? l : n - 1; memcpy(d, s, k); d[k] = 0; } return l; }
 class __FlashStringHelper;
 class String {
 public:

@@ -24,8 +24,8 @@ struct Look {
   int handDy;          // the hand bobbing while it shakes
 };
 
-const int GROUND_Y = 165;          // where feet stand
-const int CREATURE_HAND_Y = 118;   // hand height at rest (the middle of the walls)
+const int GROUND_Y = 205;                    // where feet stand: low on the stage, leaving the sky for words
+const int CREATURE_HAND_Y = GROUND_Y - 47;   // hand height at rest (the middle of the walls)
 const int OUTLINE = 3;             // Famyy's line weight
 
 void drawFamyy(GFXcanvas16 *c, uint32_t t, const Look &k, const Palette &p);
