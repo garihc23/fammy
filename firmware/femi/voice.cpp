@@ -120,7 +120,7 @@ void voiceFeed(const int16_t *s, size_t n) {
 static Ring spk;
 static I2SClass amp;
 static volatile bool playing = false, sayEnded = false;
-static volatile bool stopReq = false, discarding = false;   // a tap cut the reply short
+static volatile bool stopReq = false, stopQuietly = false, discarding = false;   // a tap cut the reply short
 static volatile int sayListen = -1;                          // listen afterwards: 1 yes, 0 no, -1 only after a question
 static volatile int playLevel = 0;
 static char sayId[16];
@@ -168,9 +168,11 @@ void playerSayEnd() {
   if (!discarding) sayEnded = true;
 }
 
-void playerStop() {
+void playerStop(bool quietly) {
   discarding = true;   // whatever is still on its way is dropped as it arrives
-  stopReq = true;      // the player task empties what is already queued
+  xQueueReset(cues);   // and any sounds waiting (now, so a chime queued right after this survives)
+  stopQuietly = quietly;
+  stopReq = true;      // the player task empties the reply audio already queued
 }
 
 bool playerDiscarding() { return discarding; }
@@ -358,14 +360,13 @@ static void playerTask(void *) {
     if (stopReq) {   // a tap cut the reply short: forget it and anything queued, no follow-up listening
       stopReq = false;
       spk.clear();
-      xQueueReset(cues);
       playing = sayEnded = false;
       playLevel = 0;
       femiLock();
       femiView().speaking = false;
       femiView().busy = false;
       femiUnlock();
-      cue(CLIP_BASE + CLIP_STOPPED);   // "Okay, I'll stop."
+      if (!stopQuietly) cue(CLIP_BASE + CLIP_STOPPED);   // "Okay, I'll stop."
     }
     Cue q;
     if (!playing && spk.available() == 0 && xQueueReceive(cues, &q, 0) == pdTRUE) {

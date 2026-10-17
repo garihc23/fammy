@@ -17,7 +17,8 @@ void playerBegin();
 Ring &speakRing();                                 // reply audio waiting to be played (network task writes)
 void playerSayStart(const char *id, uint32_t bytes, int listen);   // listen afterwards: 1 yes, 0 no, -1 only after a question
 void playerSayEnd();                               // all of this reply's audio has arrived
-void playerStop();                                 // cut the reply short: what's queued and what's still arriving
+void playerStop(bool quietly = false);             // cut the reply short: what's queued and what's still arriving;
+                                                   // quietly: without "Okay, I'll stop." (someone wants to talk)
 bool playerDiscarding();                           // the network drops reply audio after a stop, until the next reply
 bool playerBusy();                                 // still playing
 int playerLevel();                                 // loudness right now, to move the mouth

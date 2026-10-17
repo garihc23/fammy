@@ -40,6 +40,8 @@ volatile int appReq = APP_NONE;
 volatile bool approvalOpen = false;
 volatile int voiceAnswer = -1;
 volatile bool remindOpen = false;
+volatile bool talkOpen = false;
+volatile int bargeIn = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -124,6 +126,19 @@ void loop() {
   if (v.snap && snapAnswered && !v.speaking && !snapDoneAt) snapDoneAt = now;
   bool snapShown = v.snap && now - v.snapSince < 120000 && (!snapDoneAt || now - snapDoneAt < 10000);
   faceSetSnap(snapShown ? femiSnap() : nullptr, v.snapSince);
+
+  // while Famyy works or talks, listen for "stop", "wait" or "hey Famyy" (and nothing else);
+  // cards and recordings manage the recogniser themselves
+  bool working = v.busy || playerBusy();
+  bool interruptible = working && !voiceRecording() && !v.approve && !v.remind;
+  if (interruptible && !talkOpen) {
+    talkOpen = true;
+    speechRearm();
+  } else if (!interruptible && talkOpen) {
+    talkOpen = false;
+    bargeIn = 0;
+    if (working && !v.approve && !v.remind) speechPause();
+  }
 
   // Claude on the roof, from the moment you stop talking until Famyy answers
   static bool claudeHere = false;
@@ -317,12 +332,14 @@ void loop() {
   if (wasBusy && !busy) speechRearm();   // done answering: listen for "hey Famyy" again
   wasBusy = busy;
 
-  // a tap while Famyy listens, thinks or talks stops it
-  if (!app && touch.tapped && busy && timerPhase() != T_DONE) {
+  // a tap, or "stop" / "wait", while Famyy listens, thinks or talks stops it; "hey Famyy" stops it and listens
+  int barge = bargeIn;
+  bargeIn = 0;
+  if (busy && timerPhase() != T_DONE && ((!app && touch.tapped) || (barge && !voiceRecording()))) {
     if (voiceRecording()) {
       voiceCancel();
     } else {
-      playerStop();
+      playerStop(barge == 2);
       netSend(F_EVENT, "{\"type\":\"stop\"}");   // the brain drops the turn in progress
     }
     femiLock();
@@ -334,8 +351,13 @@ void loop() {
     femiUnlock();
     busy = false;
     wasBusy = false;
+    talkOpen = false;
     speechRearm();
     touch.tapped = false;   // this tap was "stop", not "talk"
+    if (barge == 2) {       // "hey Famyy": they want to say something
+      speechPause();
+      if (!voiceStart("wake")) speechRearm();
+    }
   }
 
   // tap to talk, when nothing else is going on
