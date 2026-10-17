@@ -1,11 +1,11 @@
-// Command qa drives the brain exactly like Femi's ESP32 would and checks every
+// Command qa drives the brain exactly like Famyy's ESP32 would and checks every
 // feature end to end, with real speech (Cartesia), real Claude and real Fo.
 // Start the brain first, then run the scenarios:
 //
 //	FEMI_ACK_MINUTES=1 go run ./cmd/femi-brain
 //	go run ./cmd/qa [-only name1,name2] [-call "+91 81717 64392"] [-skip-call] [-live]
 //
-// -live prints the conversation as it happens and plays Femi's voice through the laptop speakers.
+// -live prints the conversation as it happens and plays Famyy's voice through the laptop speakers.
 //
 // Prints PASS/FAIL per scenario and writes the full report to /home/leog/femi/qa/report.md.
 package main
@@ -211,13 +211,13 @@ func (d *device) collect(p policy) *result {
 			case link.TypeState:
 				json.Unmarshal(f.p, &m)
 				r.states = append(r.states, fmt.Sprintf("%5.1fs %s %q", time.Since(start).Seconds(), m["face"], m["line"]))
-				show(cState, "  Femi is", fmt.Sprintf("%v  %s%v%s", m["face"], cDim, m["line"], cReset))
+				show(cState, "  Famyy is", fmt.Sprintf("%v  %s%v%s", m["face"], cDim, m["line"], cReset))
 			case link.TypeSayStart:
 				json.Unmarshal(f.p, &m)
 				s := say{id: fmt.Sprint(m["id"]), text: fmt.Sprint(m["text"]), at: time.Since(start)}
 				r.says = append(r.says, s)
 				cur = &r.says[len(r.says)-1]
-				show(cFemi+cBold, "Femi says", fmt.Sprintf("%s%q%s", cFemi, s.text, cReset))
+				show(cFemi+cBold, "Famyy says", fmt.Sprintf("%s%q%s", cFemi, s.text, cReset))
 			case link.TypeSayChunk:
 				if cur != nil {
 					cur.bytes += len(f.p)
@@ -361,7 +361,7 @@ type scenario struct {
 
 func say1(r *result) []check {
 	var cs []check
-	cs = append(cs, want(len(r.says) > 0 && r.lastSay() != "", "Femi replied"))
+	cs = append(cs, want(len(r.says) > 0 && r.lastSay() != "", "Famyy replied"))
 	for _, s := range r.says {
 		if iss := styleIssues(s.text); len(iss) > 0 {
 			cs = append(cs, want(false, "spoken style: "+strings.Join(iss, ", ")))
@@ -476,7 +476,7 @@ func scenarios(callNumber string) []scenario {
 			}
 			return r, append(say1(r),
 				want(r.command("reminder") != nil, "reminder fired on the device"),
-				want(happy, "acknowledging it makes Femi happy"))
+				want(happy, "acknowledging it makes Famyy happy"))
 		}},
 		{"approval-declined", func(d *device, v *cartesia.Client) (*result, []check) {
 			d.text("Email Rahul Sharma that dinner is at 8 tonight.")
@@ -545,7 +545,7 @@ func main() {
 	only := flag.String("only", "", "comma-separated scenario names to run")
 	call := flag.String("call", "+91 81717 64392", "number Fo may call in the call scenario")
 	skipCall := flag.Bool("skip-call", false, "skip the real phone call")
-	flag.BoolVar(&live, "live", false, "show the conversation live and play Femi's voice")
+	flag.BoolVar(&live, "live", false, "show the conversation live and play Famyy's voice")
 	flag.Parse()
 	go speaker()
 
@@ -558,7 +558,7 @@ func main() {
 	d.drain()
 
 	var report strings.Builder
-	fmt.Fprintf(&report, "# Femi QA — %s\n\n", time.Now().Format("Mon 2 Jan 15:04"))
+	fmt.Fprintf(&report, "# Famyy QA — %s\n\n", time.Now().Format("Mon 2 Jan 15:04"))
 	passed, failed := 0, 0
 	for _, s := range scenarios(*call) {
 		if *only != "" && !strings.Contains(","+*only+",", ","+s.name+",") {
@@ -592,7 +592,7 @@ func main() {
 			fmt.Fprintf(&report, "- approval card: %q\n", a)
 		}
 		for _, sy := range r.says {
-			fmt.Fprintf(&report, "- Femi (%.1fs, %.1f s audio): %q\n", sy.at.Seconds(), float64(sy.bytes)/32000, sy.text)
+			fmt.Fprintf(&report, "- Famyy (%.1fs, %.1f s audio): %q\n", sy.at.Seconds(), float64(sy.bytes)/32000, sy.text)
 		}
 		for _, c := range r.commands {
 			b, _ := json.Marshal(c)
