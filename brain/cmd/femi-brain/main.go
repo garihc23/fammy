@@ -14,6 +14,7 @@
 //	FAMILY_DIR         profile.json + photos/ (/home/leog/femi/family)
 //	FEMI_ACK_MINUTES   minutes before an unacknowledged reminder escalates (10)
 //	FEMI_MODEL         Claude model for turns (sonnet)
+//	FEMI_EMOTION       how Famyy's voice sounds: content, calm, ... (content); "none" lets Cartesia choose
 package main
 
 import (
@@ -54,6 +55,7 @@ type config struct {
 	familyDir   string
 	ackWindow   time.Duration
 	model       string
+	emotion     string
 	promptPath  string
 }
 
@@ -89,8 +91,12 @@ func main() {
 	var voice femi.Voice
 	if cfg.cartesiaKey != "" {
 		c := cartesia.New(cfg.cartesiaKey)
+		c.Emotion = cfg.emotion
+		if c.Emotion == "none" {
+			c.Emotion = ""
+		}
 		ears, voice = c, c
-		log.Printf("voice: Cartesia STT + TTS")
+		log.Printf("voice: Cartesia STT + TTS (emotion %q)", c.Emotion)
 	} else {
 		log.Printf("voice: CARTESIA_API_KEY not set: text events only, replies sent as captions (SAY with 0 bytes)")
 	}
@@ -183,6 +189,7 @@ func loadConfig() (config, error) {
 		cartesiaKey: get("CARTESIA_API_KEY", ""),
 		familyDir:   get("FAMILY_DIR", "/home/leog/femi/family"),
 		model:       get("FEMI_MODEL", "sonnet"),
+		emotion:     get("FEMI_EMOTION", cartesia.DefaultEmotion),
 		promptPath:  get("FEMI_PROMPT", filepath.Join(brainDir, "prompt.md")),
 	}
 	var err error

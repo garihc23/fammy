@@ -54,8 +54,19 @@ const (
 	// female voice made for customer care. Famyy's voice, picked by the team.
 	VoiceSkylar = "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4"
 
+	// VoiceArushi is Cartesia's "Arushi" voice: a Hinglish female voice for
+	// bilingual content. Speaking English (DefaultLanguage) she has an Indian
+	// accent, which suits an Indian family. Famyy's voice, picked by the team.
+	VoiceArushi = "95d51f79-c397-46f9-b49a-23763d3eaa2d"
+
 	// DefaultVoiceID is the voice used by New.
-	DefaultVoiceID = VoiceSkylar
+	DefaultVoiceID = VoiceArushi
+
+	// DefaultEmotion colours every reply. "content" (warm, pleased) and "calm"
+	// are both among Sonic-3's most reliable emotions; content suits cheerful
+	// news and kids without sounding over-excited to the elderly. Emotion is
+	// beta and English only.
+	DefaultEmotion = "content"
 
 	// DefaultLanguage is used for both STT and TTS.
 	DefaultLanguage = "en"
@@ -86,6 +97,7 @@ type Client struct {
 	TTSModel   string        // default DefaultTTSModel
 	VoiceID    string        // default DefaultVoiceID
 	Language   string        // ISO-639-1 code, default DefaultLanguage
+	Emotion    string        // TTS emotion, default DefaultEmotion; "" lets the model infer it from the text
 	STTTimeout time.Duration // per Transcribe call; 0 means no extra timeout
 	TTSTimeout time.Duration // per Speak call; 0 means no extra timeout
 	HTTPClient *http.Client  // default: a dedicated client with no global timeout
@@ -101,6 +113,7 @@ func New(apiKey string) *Client {
 		TTSModel:   DefaultTTSModel,
 		VoiceID:    DefaultVoiceID,
 		Language:   DefaultLanguage,
+		Emotion:    DefaultEmotion,
 		STTTimeout: DefaultSTTTimeout,
 		TTSTimeout: DefaultTTSTimeout,
 		HTTPClient: &http.Client{},
@@ -208,6 +221,11 @@ type ttsRequest struct {
 	Voice        ttsVoice        `json:"voice"`
 	OutputFormat ttsOutputFormat `json:"output_format"`
 	Language     string          `json:"language,omitempty"`
+	Generation   *ttsGeneration  `json:"generation_config,omitempty"`
+}
+
+type ttsGeneration struct {
+	Emotion string `json:"emotion,omitempty"`
 }
 
 type ttsVoice struct {
@@ -230,7 +248,7 @@ func (c *Client) Speak(ctx context.Context, text string, sampleRate int) ([]byte
 		return nil, fmt.Errorf("cartesia tts: unsupported sample rate %d (want 8000, 16000, 22050, 24000, 44100 or 48000)", sampleRate)
 	}
 
-	payload, err := json.Marshal(ttsRequest{
+	req := ttsRequest{
 		ModelID:    c.TTSModel,
 		Transcript: text,
 		Voice:      ttsVoice{ID: c.VoiceID},
@@ -240,7 +258,11 @@ func (c *Client) Speak(ctx context.Context, text string, sampleRate int) ([]byte
 			SampleRate: sampleRate,
 		},
 		Language: c.Language,
-	})
+	}
+	if c.Emotion != "" {
+		req.Generation = &ttsGeneration{Emotion: c.Emotion}
+	}
+	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("cartesia tts: encode request: %w", err)
 	}

@@ -243,7 +243,8 @@ func TestSpeakRequestShape(t *testing.T) {
 				"encoding":    "pcm_s16le",
 				"sample_rate": float64(16000),
 			},
-			"language": "en",
+			"language":          "en",
+			"generation_config": map[string]any{"emotion": "content"},
 		}
 		gotJSON, _ := json.Marshal(body)
 		wantJSON, _ := json.Marshal(want)
