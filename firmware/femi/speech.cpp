@@ -16,7 +16,7 @@ static const int NUMBERS[] = {1, 2, 3, 5, 10, 15, 20, 30, 45, 60};
 
 static const char *cmdNames[] = {
   "HAPPY", "SLEEP", "WAKE", "MUSIC", "STOP", "THINK", "HACK", "NORMAL",
-  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FEMI"
+  "SET TIMER", "POMODORO", "CANCEL", "PAUSE", "RESUME", "GAME", "MORSE", "HEY FAMYY"
 };
 
 // keep phrases short and distinct: long phrases and near-duplicates are missed or confused
@@ -50,9 +50,10 @@ static const sr_cmd_t commands[] = {
   {CMD_MORSE,     "morse code"},
   {CMD_MORSE,     "learn morse"},
   {CMD_MORSE,     "teach me morse"},
-  // the wake phrase, when HEY_FEMI is on: the command recogniser listens for it all the time
-  {CMD_HEY,       "hey femi"},
-  {CMD_HEY,       "hi femi"},
+  // the wake phrase, when HEY_FAMYY is on: the command recogniser listens for it all the time.
+  // Spelled the way it sounds ("Fammy", like family): the recogniser works the sounds out from the spelling.
+  {CMD_HEY,       "hey fammy"},
+  {CMD_HEY,       "hi fammy"},
   // numbers: reusable answers to any "how much / how long" question
   {CMD_NUM_FIRST + 0, "one"},
   {CMD_NUM_FIRST + 1, "two"},
@@ -89,8 +90,8 @@ public:
 
 static MicWithGain mic;
 
-// waiting for the wake phrase: the always-on command recogniser for "hey femi", or Espressif's "Hi ESP" model
-static sr_mode_t idleMode() { return HEY_FEMI ? SR_MODE_COMMAND : SR_MODE_WAKEWORD; }
+// waiting for the wake phrase: the always-on command recogniser for "hey Famyy", or Espressif's "Hi ESP" model
+static sr_mode_t idleMode() { return HEY_FAMYY ? SR_MODE_COMMAND : SR_MODE_WAKEWORD; }
 
 void speechPause() { ESP_SR.setMode(SR_MODE_OFF); }   // stop listening while Femi records, thinks and talks
 void speechRearm() { ESP_SR.setMode(idleMode()); }
@@ -112,7 +113,7 @@ static void onWake() {
 // runs in the speech task: only decide what to show and post requests, never draw here
 static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
   switch (event) {
-    case SR_EVENT_WAKEWORD:   // "Hi ESP" (only when HEY_FEMI is off)
+    case SR_EVENT_WAKEWORD:   // "Hi ESP" (only when HEY_FAMYY is off)
       onWake();
       break;
     case SR_EVENT_COMMAND:
@@ -156,7 +157,7 @@ static void onSrEvent(sr_event_t event, int command_id, int phrase_id) {
       }
       ESP_SR.setMode(SR_MODE_COMMAND);   // follow-up window: keep listening
       break;
-    case SR_EVENT_TIMEOUT:   // the command recogniser's window ran out: in HEY_FEMI mode it simply starts again
+    case SR_EVENT_TIMEOUT:   // the command recogniser's window ran out: in HEY_FAMYY mode it simply starts again
       if (listening) Serial.println(">> timeout");
       listening = false;
       asking = ASK_NONE;

@@ -10,7 +10,7 @@ const int TOUCH_PIN = 2;                                 // capacitive touch pad
 const int AMP_BCLK = 15, AMP_LRC = 16, AMP_DIN = 7;      // I2S bus 1: MAX98357 amp
 
 // ---------- Femi ----------
-const bool HEY_FEMI = true;          // wake phrase "hey femi" (always-on command recogniser); false = Espressif's "Hi ESP"
+const bool HEY_FAMYY = true;         // wake phrase "hey Famyy" (always-on command recogniser); false = Espressif's "Hi ESP"
 const float SPEAKER_VOLUME = 0.6f;   // 0..1 of full scale: the amp is loud
 
 // display speed: 10 MHz is safe on long jumper wires; try 20-40 MHz once the wires are short

@@ -1,8 +1,8 @@
-// Femi: a family agent's body. Claude thinks (the brain on the laptop), Fo acts in the world, Femi listens, shows and talks.
+// Famyy: a family agent's body. Claude thinks (the brain on the laptop), Fo acts in the world, Famyy listens, shows and talks.
 // Tools menu: Arduino Runs On = Core 0 (speech recognition owns core 1; on the same core the screen halves its frame rate)
 //   config.h   pins, constants, shared enums
 //   shared.h   the mailbox between the speech task and loop()
-//   speech.*   wake phrase ("hey femi") and offline voice commands (ESP-SR)
+//   speech.*   wake phrase ("hey Famyy") and offline voice commands (ESP-SR)
 //   voice.*    recording requests for the brain, playing its replies
 //   net.*      Wi-Fi link to the brain (see PROTOCOL.md)
 //   femi.*     what the brain has asked Femi to show
@@ -178,7 +178,7 @@ void loop() {
     clearFlag(&FemiView::busy);
     busy = false;
   }
-  if (wasBusy && !busy) speechRearm();   // done answering: listen for "hey femi" again
+  if (wasBusy && !busy) speechRearm();   // done answering: listen for "hey Famyy" again
   wasBusy = busy;
 
   // tap to talk, when nothing else is going on
@@ -187,7 +187,7 @@ void loop() {
     if (!voiceStart("tap")) speechRearm();
   }
 
-  // doze off after a long quiet spell; "hey femi" wakes it as usual
+  // doze off after a long quiet spell; "hey Famyy" wakes it as usual
   static uint32_t lastActive = 0;
   if (app || busy || listening || timerPhase() != T_OFF || wanted != IDLE) lastActive = now;
   else if (now - lastActive > DOZE_MIN * 60000UL) wanted = SLEEPING;

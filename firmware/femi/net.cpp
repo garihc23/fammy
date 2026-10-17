@@ -248,7 +248,7 @@ static void netTask(void *) {
         continue;
       }
       cli.setNoDelay(true);
-      const char *hello = "{\"device\":\"femi\",\"fw\":\"0.1\"}";
+      const char *hello = "{\"device\":\"famyy\",\"fw\":\"0.1\"}";
       writeFrame(F_HELLO, hello, strlen(hello));
       setUp(true);
     }

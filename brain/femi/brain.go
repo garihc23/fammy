@@ -515,7 +515,7 @@ func (b *Brain) speak(ctx context.Context, text string, cache bool) time.Duratio
 	if b.cfg.Voice != nil && !cached {
 		start := time.Now()
 		var err error
-		pcm, err = b.cfg.Voice.Speak(ctx, text, SampleRate)
+		pcm, err = b.cfg.Voice.Speak(ctx, spoken(text), SampleRate)
 		took = time.Since(start)
 		if err != nil {
 			b.logf("tts failed after %dms, sending caption only: %v", took.Milliseconds(), err)
@@ -681,4 +681,10 @@ func (b *Brain) RequestApproval(ctx context.Context, summary string) string {
 	case <-ctx.Done():
 		return "cancelled (treat as declined)"
 	}
+}
+
+// spoken adjusts text for the voice only (captions keep the original): the name is
+// written "Famyy" but should sound like "Fammy", short for family.
+func spoken(text string) string {
+	return strings.NewReplacer("Famyy", "Fammy", "FAMYY", "Fammy", "famyy", "fammy").Replace(text)
 }

@@ -25,7 +25,7 @@ static const uint16_t BLUSH = rgb565(255, 127, 168);
 static const Theme NORMAL = {
   rgb565(255, 241, 220), rgb565(89, 84, 77), rgb565(56, 53, 48), rgb565(18, 17, 15),
   rgb565(90, 220, 120), rgb565(255, 90, 90), rgb565(255, 180, 60), rgb565(170, 130, 255),
-  "buddy@desk:~$",
+  "famyy@home:~$",
   {"idle", "watching you code", "ping 127.0.0.1", "git status: clean", "coffee level: low"},
   "listening", "mood = happy :)", "thinking", "sleep 8h",
   "focus", "break", "time's up!", "how long? (min)",
@@ -33,8 +33,8 @@ static const Theme NORMAL = {
 static const Theme HACKER = {
   rgb565(57, 255, 122), rgb565(20, 89, 43), rgb565(13, 56, 27), rgb565(4, 18, 9),
   rgb565(57, 255, 122), rgb565(200, 255, 200), rgb565(30, 170, 80), rgb565(120, 255, 170),   // hacking mode stays green
-  "root@desk:~#",
-  {"sudo make coffee", "nmap -sV localhost", "tail -f /var/log/life", "ssh buddy@desk", "chmod +x brain.sh"},
+  "root@famyy:~#",
+  {"sudo make coffee", "nmap -sV localhost", "tail -f /var/log/life", "ssh famyy@home", "chmod +x brain.sh"},
   "sniffing audio", "access granted :)", "cracking", "halt",
   "exploit", "cooldown", "pwned! time up", "enter duration:",
 };

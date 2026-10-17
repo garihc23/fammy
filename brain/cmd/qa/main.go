@@ -3,7 +3,9 @@
 // Start the brain first, then run the scenarios:
 //
 //	FEMI_ACK_MINUTES=1 go run ./cmd/femi-brain
-//	go run ./cmd/qa [-only name1,name2] [-call "+91 81717 64392"] [-skip-call]
+//	go run ./cmd/qa [-only name1,name2] [-call "+91 81717 64392"] [-skip-call] [-live]
+//
+// -live prints the conversation as it happens and plays Femi's voice through the laptop speakers.
 //
 // Prints PASS/FAIL per scenario and writes the full report to /home/leog/femi/qa/report.md.
 package main
@@ -15,6 +17,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,6 +28,46 @@ import (
 	"femi/brain/cartesia"
 	"femi/brain/link"
 )
+
+// ---------- live view ----------
+
+var live bool
+var voiceOut = make(chan []byte, 32)
+var voiceDone = make(chan struct{})
+
+const (
+	cReset  = "\033[0m"
+	cDim    = "\033[2m"
+	cBold   = "\033[1m"
+	cYou    = "\033[36m" // cyan
+	cFemi   = "\033[32m" // green
+	cState  = "\033[33m" // yellow
+	cCard   = "\033[35m" // magenta
+	cDevice = "\033[34m" // blue
+	cBad    = "\033[31m" // red
+)
+
+func show(color, who, text string) {
+	if !live {
+		return
+	}
+	fmt.Printf("%s%s%s %s%-14s%s %s\n", cDim, time.Now().Format("15:04:05"), cReset, color, who, cReset, text)
+}
+
+// plays Femi's replies one after another through the laptop speakers
+func speaker() {
+	for pcm := range voiceOut {
+		cmd := exec.Command("aplay", "-q", "-f", "S16_LE", "-r", "16000", "-c", "1")
+		in, err := cmd.StdinPipe()
+		if err != nil || cmd.Start() != nil {
+			continue
+		}
+		in.Write(pcm)
+		in.Close()
+		cmd.Wait()
+	}
+	close(voiceDone)
+}
 
 // ---------- the fake device ----------
 
@@ -74,6 +117,7 @@ func (d *device) sendBytes(t byte, payload []byte) {
 }
 
 func (d *device) text(s string) {
+	show(cYou, "You", s)
 	b, _ := json.Marshal(map[string]string{"type": "text", "text": s})
 	d.sendBytes(link.TypeEvent, b)
 }
@@ -107,6 +151,7 @@ func (d *device) drain() {
 type say struct {
 	id, text string
 	bytes    int
+	pcm      []byte
 	at       time.Duration
 }
 
@@ -166,17 +211,26 @@ func (d *device) collect(p policy) *result {
 			case link.TypeState:
 				json.Unmarshal(f.p, &m)
 				r.states = append(r.states, fmt.Sprintf("%5.1fs %s %q", time.Since(start).Seconds(), m["face"], m["line"]))
+				show(cState, "  Femi is", fmt.Sprintf("%v  %s%v%s", m["face"], cDim, m["line"], cReset))
 			case link.TypeSayStart:
 				json.Unmarshal(f.p, &m)
 				s := say{id: fmt.Sprint(m["id"]), text: fmt.Sprint(m["text"]), at: time.Since(start)}
 				r.says = append(r.says, s)
 				cur = &r.says[len(r.says)-1]
+				show(cFemi+cBold, "Femi says", fmt.Sprintf("%s%q%s", cFemi, s.text, cReset))
 			case link.TypeSayChunk:
 				if cur != nil {
 					cur.bytes += len(f.p)
+					if live {
+						cur.pcm = append(cur.pcm, f.p...)
+					}
 				}
 			case link.TypeSayEnd:
 				if cur != nil {
+					if live && len(cur.pcm) > 0 {
+						voiceOut <- cur.pcm
+						cur.pcm = nil
+					}
 					d.event(map[string]any{"type": "played", "id": cur.id})
 					text := cur.text
 					cur = nil
@@ -194,18 +248,30 @@ func (d *device) collect(p policy) *result {
 				switch m["type"] {
 				case "approve":
 					r.approvals = append(r.approvals, fmt.Sprint(m["text"]))
+					show(cCard+cBold, "Approval card", fmt.Sprintf("%q  (tap = yes, hold = no)", m["text"]))
 					if p.approve != "" {
 						time.Sleep(1500 * time.Millisecond) // a person reading the card
 						d.event(map[string]any{"type": "approval", "id": m["id"], "ok": p.approve == "yes"})
+						if p.approve == "yes" {
+							show(cYou, "You", "tap: yes")
+						} else {
+							show(cYou, "You", "hold: no")
+						}
 					}
 				case "reminder":
+					show(cBad+cBold, "Reminder card", fmt.Sprintf("%q", m["text"]))
 					if p.ackRemind {
+						show(cYou, "You", "(waits 2 s, then taps: done)")
 						time.Sleep(2 * time.Second)
 						d.event(map[string]any{"type": "ack", "id": m["id"]})
 						p.untilSays++
 					}
 				case "image":
 					r.images++
+					show(cDevice, "Shows photo", fmt.Sprintf("%q", m["caption"]))
+				default:
+					b, _ := json.Marshal(m)
+					show(cDevice, "Device does", string(b))
 				}
 			case link.TypeImageChunk:
 				r.imageData += len(f.p)
@@ -326,7 +392,8 @@ func contains(s string, any ...string) bool {
 func scenarios(callNumber string) []scenario {
 	return []scenario{
 		{"voice-weather", func(d *device, v *cartesia.Client) (*result, []check) {
-			pcm, err := v.Speak(context.Background(), "Hey Femi, what's the weather in Bengaluru right now?", 16000)
+			show(cYou, "You (voice)", "Hey Famyy, what's the weather in Bengaluru right now?")
+			pcm, err := v.Speak(context.Background(), "Hey Famyy, what's the weather in Bengaluru right now?", 16000)
 			if err != nil {
 				return &result{}, []check{want(false, "make test speech: "+err.Error())}
 			}
@@ -424,11 +491,13 @@ func scenarios(callNumber string) []scenario {
 			return r, append(say1(r), want(len(r.approvals) == 0, "reading needs no approval"))
 		}},
 		{"silence", func(d *device, v *cartesia.Client) (*result, []check) {
+			show(cYou, "You (voice)", "(1.5 s of silence)")
 			d.audio(make([]byte, 16000*2*3/2), "silence")
 			r := d.collect(policy{timeout: 30 * time.Second})
 			return r, append(say1(r), want(contains(r.lastSay(), "catch", "didn't hear", "sorry", "say that again"), "says it didn't catch that"))
 		}},
 		{"cancelled", func(d *device, v *cartesia.Client) (*result, []check) {
+			show(cYou, "You (voice)", "(starts talking, then the device cancels)")
 			d.audio(make([]byte, 4096), "cancel")
 			r := d.collect(policy{timeout: 6 * time.Second})
 			return r, []check{want(len(r.says) == 0, "a cancelled request is dropped silently")}
@@ -476,7 +545,9 @@ func main() {
 	only := flag.String("only", "", "comma-separated scenario names to run")
 	call := flag.String("call", "+91 81717 64392", "number Fo may call in the call scenario")
 	skipCall := flag.Bool("skip-call", false, "skip the real phone call")
+	flag.BoolVar(&live, "live", false, "show the conversation live and play Femi's voice")
 	flag.Parse()
+	go speaker()
 
 	voice := cartesia.New(loadKey())
 	d, err := dial(*addr)
@@ -496,7 +567,7 @@ func main() {
 		if s.name == "call" && *skipCall {
 			continue
 		}
-		fmt.Printf("\n=== %s\n", s.name)
+		fmt.Printf("\n%s──── %s ────%s\n", cBold, s.name, cReset)
 		r, checks := s.run(d, voice)
 		ok := true
 		for _, c := range checks {
@@ -528,7 +599,18 @@ func main() {
 			fmt.Fprintf(&report, "- command: %s\n", b)
 		}
 		fmt.Fprintf(&report, "\n<details><summary>states</summary>\n\n```\n%s\n```\n</details>\n\n", strings.Join(r.states, "\n"))
-		fmt.Printf("%s %s (%.1f s)\n", mark, s.name, r.elapsed.Seconds())
+		color := cFemi
+		if mark == "FAIL" {
+			color = cBad
+		}
+		fmt.Printf("%s%s%s %s (%.1f s)\n", color+cBold, mark, cReset, s.name, r.elapsed.Seconds())
+		for _, c := range checks {
+			sym, col := "✓", cFemi
+			if !c.ok {
+				sym, col = "✗", cBad
+			}
+			fmt.Printf("   %s%s%s %s\n", col, sym, cReset, c.what)
+		}
 		d.drain()
 	}
 	fmt.Fprintf(&report, "**%d passed, %d failed**\n", passed, failed)
@@ -537,4 +619,6 @@ func main() {
 	os.MkdirAll(filepath.Dir(out), 0o755)
 	os.WriteFile(out, []byte(report.String()), 0o644)
 	fmt.Printf("\n%d passed, %d failed — report: %s\n", passed, failed, out)
+	close(voiceOut)
+	<-voiceDone // let the last reply finish playing
 }
