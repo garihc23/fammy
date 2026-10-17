@@ -129,7 +129,7 @@ func New(cfg Config) *Brain {
 		cfg.TurnTimeout = 5 * time.Minute
 	}
 	if cfg.IdleReset <= 0 {
-		cfg.IdleReset = 30 * time.Minute
+		cfg.IdleReset = 5 * time.Minute // a family shares Femi: after a pause, the next speaker is likely someone else
 	}
 	if cfg.ApprovalTimeout <= 0 {
 		cfg.ApprovalTimeout = 62 * time.Second
