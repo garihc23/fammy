@@ -16,6 +16,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"femi/brain/link"
 	"femi/brain/mcp"
@@ -32,6 +33,7 @@ type rec struct {
 	Text    string
 	Bytes   int
 	Listen  bool
+	Aside   bool
 	Command map[string]any
 }
 
@@ -65,8 +67,8 @@ func (d *fakeDevice) Connected() bool {
 func (d *fakeDevice) State(face, line string) error {
 	return d.add(rec{Kind: "state", Face: face, Line: line})
 }
-func (d *fakeDevice) Say(ctx context.Context, id, text string, pcm []byte, listen bool) error {
-	return d.add(rec{Kind: "say", ID: id, Text: text, Bytes: len(pcm), Listen: listen})
+func (d *fakeDevice) Say(ctx context.Context, id, text string, pcm []byte, opts link.SayOptions) error {
+	return d.add(rec{Kind: "say", ID: id, Text: text, Bytes: len(pcm), Listen: opts.Listen, Aside: opts.Aside})
 }
 func (d *fakeDevice) Command(v any) error {
 	raw, _ := json.Marshal(v)
@@ -978,5 +980,32 @@ func TestStartOverPhrases(t *testing.T) {
 		if got := startOver.MatchString(s); got != want {
 			t.Errorf("startOver(%q) = %v, want %v", s, got, want)
 		}
+	}
+}
+
+// Only the answer to the request in progress ends what is going on on the
+// device; reminders, "noted" and "one moment" are asides.
+func TestAsidesAndCaptionCap(t *testing.T) {
+	long := strings.Repeat("The light blue suit is lovely. ", 30) // ~930 characters
+	b, dev := newBrain(t, replyThinker(long), nil)
+	b.DeviceFrame(textEvent("find wedding outfits"))
+	r := dev.waitFor(t, "reply", func(r rec) bool { return r.Kind == "say" && strings.HasPrefix(r.Text, "The light blue") })
+	if n := utf8.RuneCountInString(r.Text); r.Aside || n > captionMax+1 || !strings.HasSuffix(r.Text, "…") {
+		t.Errorf("reply say: aside %v, %d characters %q", r.Aside, utf8.RuneCountInString(r.Text), r.Text[len(r.Text)-20:])
+	}
+	if r.Bytes != 2*len(spoken(Spoken(long))) {
+		t.Errorf("the audio must keep the whole reply: %d bytes", r.Bytes)
+	}
+
+	b.speakAside(context.Background(), MsgNoted)
+	if r := dev.waitFor(t, "noted", isSay(MsgNoted)); !r.Aside || r.Listen {
+		t.Errorf("noted should be an aside without listening: %+v", r)
+	}
+	b.reminderFired(remind.Reminder{ID: "r9", Text: "Drink water"})
+	if r := dev.waitFor(t, "reminder", isSay("Reminder: Drink water.")); !r.Aside {
+		t.Errorf("a reminder announcement should be an aside: %+v", r)
+	}
+	if got := caption("short"); got != "short" {
+		t.Errorf("caption(short) = %q", got)
 	}
 }

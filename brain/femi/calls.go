@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"femi/brain/link"
 )
 
 // CallLine is one line of a phone call Fo made, as replay_call takes it.
@@ -107,10 +109,10 @@ func (b *Brain) ReplayCall(ctx context.Context, title string, lines []CallLine) 
 	b.sayN++
 	id := fmt.Sprintf("s%d", b.sayN)
 	b.mu.Unlock()
-	caption := "Call: " + clip(strings.TrimSpace(title), 40)
+	title = "Call: " + clip(strings.TrimSpace(title), 40)
 	play := b.requestCtx() // not the tool call's: the call keeps playing after the tool returns
 	go func() {
-		if err := b.cfg.Device.Say(play, id, caption, pcm, false); err != nil && !stopped(play) {
+		if err := b.cfg.Device.Say(play, id, title, pcm, link.SayOptions{Aside: true}); err != nil && !stopped(play) {
 			b.logf("replay %s: %v", id, err)
 		}
 	}()

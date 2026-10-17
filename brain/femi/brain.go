@@ -47,7 +47,7 @@ const (
 type Device interface {
 	Connected() bool
 	State(face, line string) error
-	Say(ctx context.Context, id, text string, pcm []byte, listen bool) error // listen: open the mic again afterwards
+	Say(ctx context.Context, id, text string, pcm []byte, opts link.SayOptions) error
 	Command(v any) error
 	Image(caption string, w, h int, rgb565 []byte) error
 	Snapshot(caption string, w, h int, rgb565 []byte) error // a camera photo, shown as a small polaroid
@@ -390,7 +390,7 @@ func stopped(ctx context.Context) bool { return errors.Is(ctx.Err(), context.Can
 func (b *Brain) utterance(pcm []byte, trigger string) {
 	if !b.tryTurn() {
 		b.logf("busy: dropping utterance")
-		b.speakPhrase(context.Background(), MsgBusy)
+		b.speakAside(context.Background(), MsgBusy)
 		return
 	}
 	defer b.endTurn()
@@ -403,7 +403,7 @@ func (b *Brain) utterance(pcm []byte, trigger string) {
 			_ = b.cfg.Device.State("idle", "")
 			return
 		}
-		b.speak(ctx, MsgDidntCatch, true, true) // listen again: they wanted something
+		b.speak(ctx, MsgDidntCatch, true, link.SayOptions{Listen: true}) // listen again: they wanted something
 	}
 	if b.cfg.Ears == nil {
 		b.speakPhrase(ctx, MsgNoEars)
@@ -447,7 +447,7 @@ func (b *Brain) textRequest(text string) {
 	}
 	if !b.tryTurn() {
 		b.logf("busy: dropping text %q", text)
-		b.speakPhrase(context.Background(), MsgBusy)
+		b.speakAside(context.Background(), MsgBusy)
 		return
 	}
 	defer b.endTurn()
@@ -557,14 +557,14 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 	reply := Spoken(res.Reply)
 	if quietReply(reply) { // the device already said it ("Okay, I won't."): end the turn without a word
 		b.logf("turn %d done: quiet | turn %dms, $%.4f | events [%s]", n, took.Milliseconds(), res.CostUSD, strings.Join(events, ","))
-		_ = b.cfg.Device.Say(ctx, b.nextSayID(), "", nil, false) // an empty reply still ends the device's busy state
+		_ = b.cfg.Device.Say(ctx, b.nextSayID(), "", nil, link.SayOptions{}) // an empty reply still ends the device's busy state
 		return
 	}
 	if reply == "" {
 		reply = "Done."
 	}
 	listen := keepListening(text, reply)
-	tts := b.speak(ctx, reply, false, listen)
+	tts := b.speak(ctx, reply, false, link.SayOptions{Listen: listen})
 	if stopped(ctx) {
 		b.logf("turn %d stopped while speaking", n)
 	}
@@ -692,11 +692,19 @@ func Spoken(s string) string {
 // ---- speaking ----
 
 // speakPhrase speaks a fixed phrase, synthesizing it only once.
-func (b *Brain) speakPhrase(ctx context.Context, text string) { b.speak(ctx, text, true, false) }
+func (b *Brain) speakPhrase(ctx context.Context, text string) {
+	b.speak(ctx, text, true, link.SayOptions{})
+}
+
+// speakAside says a canned phrase that isn't the answer to the request in
+// progress ("One moment...", "Thank you, noted."): the device keeps that going.
+func (b *Brain) speakAside(ctx context.Context, text string) {
+	b.speak(ctx, text, true, link.SayOptions{Aside: true})
+}
 
 // speak sends text as a SAY (with audio when TTS is configured) and returns
 // the TTS time.
-func (b *Brain) speak(ctx context.Context, text string, cache, listen bool) time.Duration {
+func (b *Brain) speak(ctx context.Context, text string, cache bool, opts link.SayOptions) time.Duration {
 	b.mu.Lock()
 	b.sayN++
 	id := fmt.Sprintf("s%d", b.sayN)
@@ -718,7 +726,7 @@ func (b *Brain) speak(ctx context.Context, text string, cache, listen bool) time
 			b.mu.Unlock()
 		}
 	}
-	if err := b.cfg.Device.Say(ctx, id, text, pcm, listen); err != nil && !stopped(ctx) {
+	if err := b.cfg.Device.Say(ctx, id, caption(text), pcm, opts); err != nil && !stopped(ctx) {
 		b.logf("say %s %q: %v", id, text, err)
 	}
 	return took
@@ -776,6 +784,21 @@ func dropLoops(s string) string {
 // startOver: the person wants a clean slate ("start over", "new conversation", "forget all that").
 var startOver = regexp.MustCompile(`(?i)\b(?:start (?:over|again|afresh|from scratch)|new conversation|fresh start|clean slate|` +
 	`forget (?:that|this|everything|all (?:of )?that|what i said))\b`)
+
+// captionMax caps the text sent with a reply (the device shows it word by
+// word); the audio always has all of it.
+const captionMax = 400
+
+func caption(s string) string {
+	if utf8.RuneCountInString(s) <= captionMax {
+		return s
+	}
+	r := []rune(s)[:captionMax]
+	if i := strings.LastIndexByte(string(r), ' '); i > captionMax/2 {
+		return strings.TrimRight(string(r)[:i], " ,;:") + "…"
+	}
+	return string(r) + "…"
+}
 
 // quietReply is Claude's way to say nothing at all: "[quiet]".
 func quietReply(s string) bool {
@@ -849,7 +872,7 @@ func (b *Brain) reminderFired(r remind.Reminder) {
 			}
 			spoken = fmt.Sprintf("%s, it's time for your %s.", who, r.Text) // the device then says how to acknowledge ("say done, or tap me")
 		}
-		b.speak(context.Background(), strings.ReplaceAll(spoken, "..", "."), false, false)
+		b.speak(context.Background(), strings.ReplaceAll(spoken, "..", "."), false, link.SayOptions{Aside: true})
 	}()
 }
 
@@ -861,7 +884,7 @@ func (b *Brain) ack(id string) {
 	}
 	b.logf("reminder %s acknowledged", r.ID)
 	_ = b.cfg.Device.State("happy", "Noted")
-	b.speakPhrase(context.Background(), MsgNoted)
+	b.speakAside(context.Background(), MsgNoted)
 }
 
 // photoNote tells Claude how old the last camera photo in the conversation
