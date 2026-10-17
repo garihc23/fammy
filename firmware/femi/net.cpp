@@ -178,7 +178,7 @@ static void onControl(uint8_t type, const char *j) {
       femiLock();
       FemiView &v = femiView();
       jsonStr(j, "text", v.caption, sizeof v.caption);
-      v.speaking = true;
+      v.speaking = v.caption[0] || bytes;   // an empty SAY means "say nothing": it only ends the turn
       v.busy = true;
       v.speakSince = now;
       v.speakMs = bytes ? bytes / 32 : max(2500u, (unsigned)strlen(v.caption) * 70);   // 32 bytes per ms at 16 kHz
