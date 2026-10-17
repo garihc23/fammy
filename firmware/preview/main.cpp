@@ -22,7 +22,7 @@ static constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
 static const Palette PAL = {rgb565(255, 246, 232), rgb565(43, 36, 32), rgb565(150, 138, 124), rgb565(228, 214, 196),
                             rgb565(255, 178, 138), rgb565(200, 86, 64), rgb565(232, 140, 104), rgb565(255, 160, 160),
                             rgb565(70, 170, 100), rgb565(240, 120, 80), rgb565(255, 255, 255), rgb565(43, 36, 32),
-                            rgb565(255, 250, 240)};
+                            rgb565(43, 36, 32), rgb565(255, 255, 255), rgb565(228, 214, 196)};
 static const uint16_t CLAUDE = rgb565(217, 119, 87);
 static BubbleStyle BUBBLE = {0xFFFF, PAL.ink, PAL.ink, &QuicksandBold16};
 static const int STAGE_Y = 24, STAGE_H = 216;
@@ -97,7 +97,7 @@ static void frame(uint32_t t, const Moment &m) {
   int rx, ry;
   famyyRoofTop(k, t, &rx, &ry);
   drawClaude(&stage, t, claudePose(t, claudeOn, claudeSince, claudeUntil, p.phase != PH_NONE), rx, ry + 3, CLAUDE, PAL.ink);
-  foDraw(&stage, t, p, m.task, PAL);
+  foDraw(&stage, t, p, m.task, PAL, &QuicksandBold16);
   drawWords(&stage, t, sc, side, text, n, BUBBLE);
 
   screen.fillScreen(PAL.bg);

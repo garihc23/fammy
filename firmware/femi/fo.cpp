@@ -223,7 +223,7 @@ static void drawToken(GFXcanvas16 *c, int x, int y, const Palette &pal) {   // a
   thickLine(c, x - 1, y + 3, x + 4, y - 3, 2, 0xFFFF);
 }
 
-void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Palette &pal) {
+void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Palette &pal, const GFXfont *nameFont) {
   if (p.sparkle > 0) {
     const int sp[3][2] = {{-14, -16}, {12, -18}, {2, -28}};
     for (int i = 0; i < 3; i++) plusSign(c, p.sparkleX + sp[i][0], p.sparkleY + sp[i][1], min(p.sparkle - i, 9), pal.accent);
@@ -267,6 +267,8 @@ void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Pa
     tube(c, rx, sy, rx + 8, sy + 14, 4, pal);
     blob(c, rx + 8, sy + 17, 4, 4, pal);
   }
+
+  if (nameFont) nameChip(c, fx, "Fo", nameFont, pal);
 
   // the body: a soft white squircle
   c->fillRoundRect(fx - FO_W / 2 - FO_OUT, top - FO_OUT, FO_W + 2 * FO_OUT, FO_H + 2 * FO_OUT, 22 + FO_OUT, pal.foInk);

@@ -22,7 +22,8 @@ struct Theme {
   uint16_t wall, roof, door, blush;   // Famyy, the little house
   uint16_t fo, foInk;                 // Fo
   uint16_t bubble;                    // inside speech bubbles and thought clouds
-  uint16_t sign, claude, claudeEyes;  // the name on the roof; Claude on top of it
+  uint16_t tag, tagFill, tagEdge;     // name chips on the floor: words, inside, outline
+  uint16_t claude, claudeEyes;        // Claude, on Famyy's roof
   bool hacker;                        // code rain and signal glitches
   const char *prefix;                 // what starts a card's or an app's bottom line
   const char *quips[5];
@@ -41,7 +42,8 @@ static const Theme NORMAL = {
   rgb565(255, 178, 138), rgb565(200, 86, 64), rgb565(232, 140, 104), rgb565(255, 160, 160),
   rgb565(255, 255, 255), rgb565(43, 36, 32),
   rgb565(255, 255, 255),
-  rgb565(255, 250, 240), rgb565(217, 119, 87), rgb565(43, 36, 32),   // white on the roof: ~4.3:1 contrast
+  rgb565(43, 36, 32), rgb565(255, 255, 255), rgb565(228, 214, 196),
+  rgb565(217, 119, 87), rgb565(43, 36, 32),
   false,
   "",
   {"home sweet home", "say: hey Famyy", "tap me to talk", "here for the family", "all's well at home"},
@@ -55,7 +57,8 @@ static const Theme HACKER = {
   rgb565(6, 40, 18), rgb565(20, 110, 55), rgb565(10, 70, 32), rgb565(30, 150, 70),
   rgb565(200, 255, 215), rgb565(57, 255, 122),
   0x0000,
-  rgb565(120, 255, 170), rgb565(217, 119, 87), 0x0000,
+  rgb565(57, 255, 122), 0x0000, rgb565(20, 89, 43),
+  rgb565(217, 119, 87), 0x0000,
   true,
   "> ",
   {"sudo make coffee", "nmap -sV localhost", "tail -f /var/log/life", "ssh famyy@home", "chmod +x brain.sh"},
@@ -137,7 +140,7 @@ static bool clockText(char *hm, size_t hn, char *ap, size_t an, char *date, size
 }
 
 static Palette palette() {
-  return {th->bg, th->ink, th->dim, th->rain, th->wall, th->roof, th->door, th->blush, th->good, th->accent, th->fo, th->foInk, th->sign};
+  return {th->bg, th->ink, th->dim, th->rain, th->wall, th->roof, th->door, th->blush, th->good, th->accent, th->fo, th->foInk, th->tag, th->tagFill, th->tagEdge};
 }
 
 static BubbleStyle bubbleStyle() { return {th->bubble, th->ink, th->ink, &FreeSans9pt7b}; }
@@ -201,7 +204,7 @@ static void drawStage(uint32_t t, Face f, float blink, const Words &w) {
   int rx, ry;
   famyyRoofTop(k, t, &rx, &ry);
   drawClaude(c, t, claudePose(t, claudeOn, claudeSince, claudeUntil, p.phase != PH_NONE), rx, ry + 3, th->claude, th->claudeEyes);
-  foDraw(c, t, p, foTask, pal);
+  foDraw(c, t, p, foTask, pal, &QuicksandBold16);
   drawWords(c, t, sc, side, text, n, BubbleStyle{th->bubble, th->ink, th->ink, &QuicksandBold16});
   if (th->hacker && t < glitchUntil) glitch(c);
 

@@ -54,6 +54,20 @@ static int bobOf(const Look &k, uint32_t t) {
        : (int)(sinf(t / 700.0f) * 1.5f);   // breathing
 }
 
+void nameChip(GFXcanvas16 *c, int cx, const char *name, const GFXfont *font, const Palette &p) {
+  int w = 16;
+  for (const char *ch = name; *ch; ch++) w += font->glyph[*ch - font->first].xAdvance;
+  int x = cx - w / 2, y = GROUND_Y + 5;
+  c->fillRoundRect(x - 1, y - 1, w + 2, 19, 9, p.tagEdge);
+  c->fillRoundRect(x, y, w, 17, 8, p.tagFill);
+  c->setFont(font);
+  c->setTextSize(1);
+  c->setTextColor(p.tag);
+  c->setCursor(x + 8, y + 13);
+  c->print(name);
+  c->setFont(nullptr);
+}
+
 void famyyRoofTop(const Look &k, uint32_t t, int *x, int *y) {
   *x = k.cx;
   *y = GROUND_Y - WALL_H - 10 + bobOf(k, t) - 50;
@@ -109,21 +123,6 @@ void drawFamyy(GFXcanvas16 *c, uint32_t t, const Look &k, const Palette &p) {
   c->fillTriangle(cx - 66, top + 12, cx + 66, top + 12, cx, top - 50, p.ink);
   c->fillTriangle(cx - 58, top + 8, cx + 58, top + 8, cx, top - 43, p.roof);
   c->fillRoundRect(cx - 54, top + 6, 108, 7, 3, p.ink);
-  if (k.nameFont) {   // its name, painted on the roof like a nameplate on a home
-    const char *name = "Famyy";
-    int w = 0;
-    for (const char *ch = name; *ch; ch++) w += k.nameFont->glyph[*ch - k.nameFont->first].xAdvance;
-    c->setFont(k.nameFont);
-    c->setTextSize(1);
-    c->setTextColor(p.sign);
-    c->setCursor(cx - w / 2, top + 2);
-    c->print(name);
-    c->setFont(nullptr);
-  }
-  c->fillRoundRect(cx - 14, top + 60, 28, WALL_H - 58, 10, p.ink);
-  c->fillRoundRect(cx - 12, top + 62, 24, WALL_H - 60, 9, p.door);
-  c->fillCircle(cx + 6, top + 76, 2, p.ink);
-
   // the face
   int fx = cx + (int)(k.gazeX * 0.5f), fy = top + 34 + (int)(k.gazeY * 0.4f);
   int my = top + 47;   // mouth line
@@ -190,6 +189,7 @@ void drawFamyy(GFXcanvas16 *c, uint32_t t, const Look &k, const Palette &p) {
       c->fillRect(x, top + 10, 4, 4, p.ink);
     }
   }
+  if (k.nameFont) nameChip(c, k.cx, "Famyy", k.nameFont, p);   // on the floor: it doesn't bounce with the house
   if (f == SLEEPING) {
     for (int i = 0; i < 3; i++) {
       float ph = fmodf(t / 2600.0f + i / 3.0f, 1.0f);

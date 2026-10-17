@@ -33,4 +33,4 @@ FoTask foTaskFromName(const char *name);   // "call" "message" "email" "shop" "c
 // homeX is where Famyy stands when Fo isn't there (it moves aside to make room for a speech bubble).
 FoPose foPose(uint32_t now, FoState state, uint32_t calledAt, uint32_t since, int homeX);
 void foPlaceFamyy(const FoPose &p, Look &k);   // moves Famyy aside, turns its eyes to Fo, puts its hand out
-void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Palette &pal);
+void foDraw(GFXcanvas16 *c, uint32_t now, const FoPose &p, FoTask task, const Palette &pal, const GFXfont *nameFont);

@@ -2,6 +2,8 @@
 
 static const int SIDE_X = 166, SIDE_W = 148;   // the speech bubble beside Famyy
 static const int CLOUD_X = 174, CLOUD_W = 134;
+// heights on the stage, from the floor up: Famyy's mouth, its shoulder, Fo's job icon, Famyy's chimney
+static const int MOUTH_Y = GROUND_Y - 49, SHOULDER_Y = GROUND_Y - 77, FO_ICON_Y = GROUND_Y - 107, CHIMNEY_Y = GROUND_Y - 149;
 
 Side sideWords(uint32_t t, const Scene &s, const char **text, int *n) {
   const Words &w = *s.w;
@@ -33,7 +35,7 @@ Side sideWords(uint32_t t, const Scene &s, const char **text, int *n) {
 
 // a one-line bubble at the top, its tail towards the chimney
 static void topBubble(GFXcanvas16 *c, int x, int w, int tailX, const BubbleStyle &st) {
-  speechBubble(c, x, 8, w, 28, tailX, 56, st);
+  speechBubble(c, x, 8, w, 28, tailX, CHIMNEY_Y, st);
 }
 
 void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char *text, int n, const BubbleStyle &st) {
@@ -43,19 +45,21 @@ void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char
   bool aside = hx < 120;   // big bubbles wait until Famyy has stepped aside
   if (side == SIDE_SPEECH && aside) {
     int h = max(bubbleHeight(st, text, n, SIDE_W, 7), 40);
-    speechBubble(c, SIDE_X, 172 - h, SIDE_W, h, hx + 50, 156, st);   // the tail points at its mouth
-    bubbleText(c, SIDE_X, 172 - h, SIDE_W, text, n, 7, st);
+    int bottom = MOUTH_Y + 16;
+    speechBubble(c, SIDE_X, bottom - h, SIDE_W, h, hx + 50, MOUTH_Y, st);   // the tail points at its mouth
+    bubbleText(c, SIDE_X, bottom - h, SIDE_W, text, n, 7, st);
     return;
   }
   if (side == SIDE_CLOUD && aside) {
     int h = max(bubbleHeight(st, text, n, CLOUD_W, 5), 30);
-    thoughtCloud(c, CLOUD_X, 112 - h, CLOUD_W, h, hx + 54, 128, st);
+    int bottom = SHOULDER_Y - 16;
+    thoughtCloud(c, CLOUD_X, bottom - h, CLOUD_W, h, hx + 54, SHOULDER_Y, st);
     if (n > 0) {
-      bubbleText(c, CLOUD_X, 112 - h, CLOUD_W, text, n, 5, st);
+      bubbleText(c, CLOUD_X, bottom - h, CLOUD_W, text, n, 5, st);
     } else {   // still working out what you said: three dots, bouncing
       for (int i = 0; i < 3; i++) {
         int dy = (int)(fabsf(sinf(t / 180.0f - i * 0.7f)) * 5);
-        c->fillCircle(CLOUD_X + CLOUD_W / 2 - 16 + i * 16, 112 - h / 2 - dy, 4, st.ink);
+        c->fillCircle(CLOUD_X + CLOUD_W / 2 - 16 + i * 16, bottom - h / 2 - dy, 4, st.ink);
       }
     }
     return;
@@ -65,7 +69,7 @@ void drawWords(GFXcanvas16 *c, uint32_t t, const Scene &s, Side side, const char
     int bw = min(textWidth(st.font, w.status, len) + 2 * BUBBLE_PAD + 2, 170);
     int bx = constrain(p.foX - bw / 2, 150, 314 - bw);
     int h = bubbleHeight(st, w.status, len, bw, 3);
-    speechBubble(c, bx, 6, bw, h, p.foX - 6, 84, st);
+    speechBubble(c, bx, 6, bw, h, p.foX - 6, FO_ICON_Y - 14, st);
     bubbleText(c, bx, 6, bw, w.status, shown, 3, st);
     return;
   }
