@@ -230,6 +230,7 @@ func TestBuildArgs(t *testing.T) {
 	want := []string{
 		"-p", "--output-format=stream-json", "--verbose",
 		"--allowedTools=" + strings.Join(append(append([]string{}, FoTools...), "mcp__device__set_led"), ","),
+		"--tools=", "--disallowedTools=" + strings.Join(lockedOut, ","),
 		`--mcp-config={"mcpServers":{}}`,
 		"--append-system-prompt=-be brief",
 		"--model=sonnet",
@@ -323,5 +324,27 @@ func TestRunTimeoutKillsChild(t *testing.T) {
 	}
 	if res.SessionID != "s-slow" {
 		t.Errorf("partial session = %q", res.SessionID)
+	}
+}
+
+// A voice turn must never reach the shell or the files on this computer.
+func TestBuiltinToolsLockedDown(t *testing.T) {
+	args := buildArgs(Options{BuiltinTools: []string{"WebSearch"}}, "")
+	if !slices.Contains(args, "--tools=WebSearch") {
+		t.Errorf("only WebSearch should exist: %q", args)
+	}
+	var denied string
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, "--disallowedTools="); ok {
+			denied = v
+		}
+	}
+	for _, tool := range []string{"Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "Task"} {
+		if !slices.Contains(strings.Split(denied, ","), tool) {
+			t.Errorf("%s is not denied: %q", tool, denied)
+		}
+	}
+	if a := buildArgs(Options{}, ""); !slices.Contains(a, "--tools=") {
+		t.Errorf("by default no built-in tool should exist: %q", a)
 	}
 }

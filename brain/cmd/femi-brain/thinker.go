@@ -45,7 +45,8 @@ func newThinkers(system string, cfg config) (*warmThinker, femi.Thinker) {
 		Model:             cfg.model,
 		Effort:            cfg.effort,
 		Env:               cfg.claudeEnv(),
-		NoPersist:         true, // a family's conversations and camera photos stay off the disk
+		NoPersist:         true,                  // a family's conversations and camera photos stay off the disk
+		BuiltinTools:      []string{"WebSearch"}, // no files, no shell: only Famyy's tools, Fo and web search
 		WorkDir:           workDir,
 		Timeout:           turnBudget,
 	}

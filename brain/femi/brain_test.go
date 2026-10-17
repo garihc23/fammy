@@ -862,3 +862,34 @@ func TestLookAtCamera(t *testing.T) {
 		t.Error("no camera: expected an error")
 	}
 }
+
+func TestPhotoAgeInTheTimeStamp(t *testing.T) {
+	now := time.Date(2026, 10, 18, 3, 44, 0, 0, time.Local)
+	var seen []string
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		seen = append(seen, text)
+		return Result{Reply: "ok"}, nil
+	}}
+	var buf bytes.Buffer
+	jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 64, 48)), nil)
+	b, dev := newBrain(t, th, func(c *Config) {
+		c.Camera = fakeCamera{buf.Bytes()}
+		c.Now = func() time.Time { return now }
+	})
+	b.DeviceFrame(textEvent("hello"))
+	dev.waitFor(t, "first reply", isSay("ok"))
+	if strings.Contains(seen[0], "camera") {
+		t.Errorf("no photo yet, but the stamp says %q", seen[0])
+	}
+	now = now.Add(-2 * time.Minute) // the photo was taken at 03:42
+	b.LookAtCamera(context.Background())
+	now = now.Add(2 * time.Minute)
+	b.DeviceFrame(textEvent("what colours suit me?"))
+	deadline := time.Now().Add(3 * time.Second)
+	for len(th.Calls()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if calls := th.Calls(); len(calls) < 2 || !strings.Contains(calls[1].Text, "| last camera photo 03:42 (2 min ago)]") {
+		t.Errorf("stamp lacks the photo's age: %+v", calls)
+	}
+}

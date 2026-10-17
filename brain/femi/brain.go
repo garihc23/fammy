@@ -137,6 +137,7 @@ type Brain struct {
 	trigger    string             // what started the recording: "wake", "tap" or "followup"
 	stopActive context.CancelFunc // stops the request in progress (a tap on the device)
 	activeCtx  context.Context    // that request's context, for audio its tools start
+	lastPhoto  time.Time          // when look_at_camera last took a photo
 }
 
 // New returns a brain; call it before the link starts serving.
@@ -500,7 +501,7 @@ func (b *Brain) runTurn(ctx context.Context, source, text string, stt time.Durat
 		}
 	}
 	start := time.Now()
-	stamped := fmt.Sprintf("[%s%s] %s", now.Format("Mon 2 Jan 2006, 15:04"), b.waitingNote(), text)
+	stamped := fmt.Sprintf("[%s%s%s] %s", now.Format("Mon 2 Jan 2006, 15:04"), b.waitingNote(), b.photoNote(now), text)
 	res, err := b.cfg.Thinker.Think(tctx, session, stamped, onEvent)
 	took := time.Since(start)
 	b.flushStates()
@@ -833,6 +834,18 @@ func (b *Brain) ack(id string) {
 	b.logf("reminder %s acknowledged", r.ID)
 	_ = b.cfg.Device.State("happy", "Noted")
 	b.speakPhrase(context.Background(), MsgNoted)
+}
+
+// photoNote tells Claude how old the last camera photo in the conversation
+// is, so it takes a fresh one instead of describing an old one as now.
+func (b *Brain) photoNote(now time.Time) string {
+	b.mu.Lock()
+	at := b.lastPhoto
+	b.mu.Unlock()
+	if at.IsZero() || now.Sub(at) > time.Hour {
+		return ""
+	}
+	return fmt.Sprintf(" | last camera photo %s (%d min ago)", at.Format("15:04"), int(now.Sub(at).Minutes()))
 }
 
 // waitingNote tells Claude, inside the time stamp, which reminders went off

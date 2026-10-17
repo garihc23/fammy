@@ -1,4 +1,7 @@
 {
   "disableAllHooks": true,
-  "alwaysThinkingEnabled": false
+  "alwaysThinkingEnabled": false,
+  "permissions": {
+    "deny": ["Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "NotebookEdit", "WebFetch", "Task", "TodoWrite"]
+  }
 }

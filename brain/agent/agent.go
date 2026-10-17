@@ -42,11 +42,19 @@ var FoTools = []string{
 	"mcp__claude_ai_fo__get_fo_conversation",
 }
 
+// lockedOut are Claude Code's built-in tools that can read, run or change
+// anything on this computer. A voice turn must never reach them (anyone in the
+// room can talk to Famyy, and API keys live on this disk), so they are denied
+// on top of --tools allowing only Options.BuiltinTools.
+var lockedOut = []string{"Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "NotebookEdit", "NotebookRead",
+	"WebFetch", "Task", "Agent", "TodoWrite", "BashOutput", "KillShell", "SlashCommand", "Skill"}
+
 // Options configures one turn.
 type Options struct {
 	SystemPrompt      string   // appended to Claude Code's system prompt (--append-system-prompt)
 	MCPConfigJSON     string   // optional extra MCP servers (--mcp-config), e.g. the device's own tool server
 	ExtraAllowedTools []string // allowed in addition to FoTools
+	BuiltinTools      []string // the only Claude Code built-in tools that exist in the turn (--tools), e.g. {"WebSearch"}; none by default
 	Model             string   // optional (--model)
 	Effort            string   // optional (--effort): low, medium, high; low answers fastest
 	NoPersist         bool     // --no-session-persistence: nothing (camera photos included) is written to disk; a conversation can't be resumed
@@ -145,6 +153,7 @@ func buildArgs(opts Options, sessionID string) []string {
 	args := []string{"-p", "--output-format=stream-json", "--verbose"}
 	allowed := append(append([]string{}, FoTools...), opts.ExtraAllowedTools...)
 	args = append(args, "--allowedTools="+strings.Join(allowed, ","))
+	args = append(args, "--tools="+strings.Join(opts.BuiltinTools, ","), "--disallowedTools="+strings.Join(lockedOut, ","))
 	if opts.MCPConfigJSON != "" {
 		args = append(args, "--mcp-config="+opts.MCPConfigJSON)
 	}

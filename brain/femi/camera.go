@@ -28,6 +28,9 @@ func (b *Brain) LookAtCamera(ctx context.Context) (string, []byte, string, error
 	if err != nil {
 		return "", nil, "", fmt.Errorf("the camera's picture was unreadable: %v", err)
 	}
+	b.mu.Lock()
+	b.lastPhoto = b.cfg.Now()
+	b.mu.Unlock()
 	size := img.Bounds().Size()
 	b.logf("camera: %dx%d photo, %d KB (not saved)", size.X, size.Y, len(jpg)/1024)
 	if b.cfg.Device.Connected() { // the polaroid is up while Claude looks
