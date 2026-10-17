@@ -44,7 +44,7 @@ func TestNewDefaults(t *testing.T) {
 	c := New("k")
 	if c.BaseURL != "https://api.cartesia.ai" || c.Version != "2026-08-14" ||
 		c.STTModel != "ink-whisper" || c.TTSModel != "sonic-3.6" ||
-		c.VoiceID != VoiceJacqueline || c.Language != "en" ||
+		c.VoiceID != DefaultVoiceID || c.Language != "en" ||
 		c.STTTimeout != 30*time.Second || c.TTSTimeout != 30*time.Second || c.HTTPClient == nil {
 		t.Fatalf("unexpected defaults: %v", c)
 	}
@@ -237,7 +237,7 @@ func TestSpeakRequestShape(t *testing.T) {
 		want := map[string]any{
 			"model_id":   "sonic-3.6",
 			"transcript": "Hello, I am Femi",
-			"voice":      map[string]any{"id": VoiceJacqueline},
+			"voice":      map[string]any{"id": DefaultVoiceID},
 			"output_format": map[string]any{
 				"container":   "raw",
 				"encoding":    "pcm_s16le",

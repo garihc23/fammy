@@ -50,8 +50,12 @@ const (
 	// elderly people.
 	VoiceJacqueline = "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc"
 
+	// VoiceSkylar is Cartesia's "Skylar" voice: an approachable American
+	// female voice made for customer care. Famyy's voice, picked by the team.
+	VoiceSkylar = "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4"
+
 	// DefaultVoiceID is the voice used by New.
-	DefaultVoiceID = VoiceJacqueline
+	DefaultVoiceID = VoiceSkylar
 
 	// DefaultLanguage is used for both STT and TTS.
 	DefaultLanguage = "en"
