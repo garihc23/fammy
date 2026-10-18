@@ -223,16 +223,18 @@ static void onControl(uint8_t type, const char *j) {
       s.bytes = jsonInt(j, "bytes", 0);
       jsonStr(j, "text", s.text, sizeof s.text);
       s.listen = jsonBool(j, "listen", false) ? 1 : strstr(j, "\"listen\"") ? 0 : -1;   // -1: an older brain didn't say
+      s.turn = jsonInt(j, "turn", -1);
       // an aside is spoken in the middle of something else and mustn't end it. The brain marks it; until every
       // brain does, the ones it says today are known by their words
       s.aside = jsonBool(j, "aside", false) || !strncmp(s.text, "Reminder:", 9) || strstr(s.text, "it's time for your") ||
                 !strcmp(s.text, "Thank you, noted.") || !strncmp(s.text, "One moment, I'm still on", 24);
+      bool first = !playerBusy();
+      if (!playerSayStart(s)) break;   // part of a stopped request: dropped. Otherwise its words show when its audio plays
       femiLock();
       FemiView &v = femiView();
-      if (!playerBusy()) v.busyBeforeAside = v.busy;   // at the first of a run of replies: what to go back to after asides
+      if (first) v.busyBeforeAside = v.busy;   // at the first of a run of replies: what to go back to after asides
       v.busy = true;
       femiUnlock();
-      playerSayStart(s);   // its words show when its audio starts playing
       break;
     }
     case F_SAY_END:

@@ -129,6 +129,7 @@ struct QueuedSay {
 };
 static QueueHandle_t says;
 static volatile uint32_t saysStarted = 0, saysEnded = 0;   // SAY_STARTs and SAY_ENDs from the brain
+static volatile int lastTurn = -1, stoppedTurn = -1;        // the request being said, and the last one stopped
 static Say current;                                         // the one being heard (player task only)
 
 // sound cues wait in a queue and play between replies, never over one
@@ -162,12 +163,18 @@ void playerClipOf(int first, int count) {   // the next of a group of clips, so 
   playerClip(first + turn[first]++ % count);
 }
 
-void playerSayStart(const Say &s) {
+bool playerSayStart(const Say &s) {
+  if (s.turn >= 0 && s.turn == stoppedTurn) {   // more of a request that was stopped: drop it, audio and all
+    discarding = true;
+    return false;
+  }
+  lastTurn = s.turn;
   QueuedSay q = {s, spk.written()};   // its audio starts where the ring has been written up to now
   discarding = false;
   playing = true;
   saysStarted++;
   if (xQueueSend(says, &q, pdMS_TO_TICKS(50)) != pdTRUE) Serial.println("say queue full: caption dropped");
+  return true;
 }
 
 void playerSayEnd() {
@@ -175,6 +182,7 @@ void playerSayEnd() {
 }
 
 void playerStop(bool quietly) {
+  stoppedTurn = lastTurn;   // the rest of this request's sentences may already be on their way: drop them too
   discarding = true;   // whatever is still on its way is dropped as it arrives
   xQueueReset(cues);   // and any sounds waiting (now, so a chime queued right after this survives)
   stopQuietly = quietly;

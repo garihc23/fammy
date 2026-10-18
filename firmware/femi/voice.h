@@ -22,9 +22,10 @@ struct Say {
   uint32_t bytes;
   int listen;          // listen afterwards: 1 yes, 0 no, -1 only after a question
   bool aside;          // spoken in the middle of something else, which carries on
+  int turn;            // the request it belongs to, or -1 (a reminder, ...): a stop drops the rest of that request
   char text[448];
 };
-void playerSayStart(const Say &s);
+bool playerSayStart(const Say &s);                 // false: dropped, it belongs to a request that was stopped
 void playerSayEnd();                               // all of the latest reply's audio has arrived
 void playerStop(bool quietly = false);             // cut the reply short: what's queued and what's still arriving;
                                                    // quietly: without "Okay, I'll stop." (someone wants to talk)
