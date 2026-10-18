@@ -153,6 +153,12 @@ type Brain struct {
 	errandN    int
 	errands    map[string]*errand // Fo errands running in the background, by id
 	speechQ    chan *speech       // everything Famyy says, in order (speech.go)
+	said       []saidLine         // what Famyy said lately, to tell its own voice in a recording
+}
+
+type saidLine struct {
+	at    time.Time
+	grams []string
 }
 
 // New returns a brain; call it before the link starts serving.
@@ -463,6 +469,10 @@ func (b *Brain) utterance(pcm []byte, trigger string) {
 		_ = b.cfg.Device.State("sad", "Couldn't hear that")
 		didntCatch()
 		return
+	}
+	if t := b.dropEcho(text); t != text {
+		b.logf("stt %dms: dropped what was Famyy's own voice from %q", stt.Milliseconds(), clip(text, 160))
+		text = t
 	}
 	if t := dropLoops(text); t != text {
 		b.logf("stt %dms: dropped a repeated phrase (transcriber looping on noise) from %q", stt.Milliseconds(), clip(text, 160))
@@ -906,6 +916,75 @@ func (b *Brain) introduce(ctx context.Context) {
 		last = b.enqueue(ctx, line, true, link.SayOptions{Aside: !end, Listen: end})
 	}
 	<-last.done
+}
+
+// echoWindow is how long what Famyy said counts as something the mic may pick up again.
+const echoWindow = 2 * time.Minute
+
+// trigrams are a text's word triples, the unit for spotting Famyy's own voice.
+func trigrams(s string) []string {
+	w := words(s)
+	var out []string
+	for i := 0; i+3 <= len(w); i++ {
+		out = append(out, strings.Join(w[i:i+3], " "))
+	}
+	return out
+}
+
+// noteSaid remembers what Famyy just said.
+func (b *Brain) noteSaid(text string) {
+	g := trigrams(text)
+	if len(g) == 0 {
+		return
+	}
+	now := time.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	keep := b.said[:0]
+	for _, l := range b.said {
+		if now.Sub(l.at) < echoWindow {
+			keep = append(keep, l)
+		}
+	}
+	b.said = append(keep, saidLine{now, g})
+}
+
+// dropEcho removes the sentences of a transcript that are mostly Famyy's own
+// recent words (the mic heard the speaker) and keeps what the person said.
+func (b *Brain) dropEcho(text string) string {
+	recent := map[string]bool{}
+	b.mu.Lock()
+	for _, l := range b.said {
+		if time.Since(l.at) < echoWindow {
+			for _, g := range l.grams {
+				recent[g] = true
+			}
+		}
+	}
+	b.mu.Unlock()
+	if len(recent) == 0 {
+		return text
+	}
+	var kept []string
+	echo := false
+	for _, s := range sentence.FindAllString(text, -1) {
+		g := trigrams(s)
+		hits := 0
+		for _, x := range g {
+			if recent[x] {
+				hits++
+			}
+		}
+		if len(g) > 0 && hits*2 >= len(g) {
+			echo = true
+			continue
+		}
+		kept = append(kept, strings.TrimSpace(s))
+	}
+	if !echo {
+		return text
+	}
+	return strings.Join(kept, " ")
 }
 
 // quietReply is Claude's way to say nothing at all: "[quiet]".

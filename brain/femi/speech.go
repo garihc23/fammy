@@ -60,6 +60,9 @@ func (b *Brain) speaker() {
 	for s := range b.speechQ {
 		pcm := <-s.pcm
 		if s.ctx.Err() == nil {
+			if pcm != nil {
+				b.noteSaid(s.text)
+			}
 			if err := b.cfg.Device.Say(s.ctx, s.id, caption(s.text), pcm, s.opts); err != nil && !stopped(s.ctx) {
 				b.logf("say %s %q: %v", s.id, clip(s.text, 80), err)
 			}

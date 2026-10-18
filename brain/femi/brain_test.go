@@ -1234,3 +1234,29 @@ func waitIdle(t *testing.T, b *Brain) {
 		time.Sleep(2 * time.Millisecond)
 	}
 }
+
+// The mic can catch Famyy's own voice; those sentences are dropped and what
+// the person said is kept.
+func TestEchoOfFamyyIsDropped(t *testing.T) {
+	b, dev := newBrain(t, replyThinker("The outfit results are the same ones I just shared, and they're still on the screen."), func(c *Config) {
+		c.Ears = fakeEars{text: "Any update on the call with Karan? The outfit results are the same ones I just shared and they're still on the screen.", got: make(chan int, 10)}
+	})
+	b.DeviceFrame(textEvent("show the outfits again"))
+	dev.waitFor(t, "first reply", func(r rec) bool { return r.Kind == "say" && !r.Aside })
+	waitIdle(t, b)
+	pcm := make([]byte, minAudioBytes*2)
+	b.DeviceFrame(link.Frame{Type: link.TypeAudioStart, Payload: []byte(`{"rate":16000,"trigger":"followup"}`)})
+	b.DeviceFrame(link.Frame{Type: link.TypeAudioChunk, Payload: pcm})
+	b.DeviceFrame(link.Frame{Type: link.TypeAudioEnd, Payload: []byte(`{"reason":"silence"}`)})
+	deadline := time.Now().Add(3 * time.Second)
+	for len(b.cfg.Thinker.(*fakeThinker).Calls()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	calls := b.cfg.Thinker.(*fakeThinker).Calls()
+	if len(calls) != 2 || !strings.HasSuffix(calls[1].Text, "] Any update on the call with Karan?") {
+		t.Errorf("the echo should be gone and the question kept: %+v", calls)
+	}
+	if got := b.dropEcho("Tell me a joke about cats."); got != "Tell me a joke about cats." {
+		t.Errorf("a fresh request was changed: %q", got)
+	}
+}
