@@ -73,6 +73,8 @@ type Event struct {
 // person) and response.
 type FoWatcher interface {
 	WaitForFo(ctx context.Context, conversationID string) (status, text string, err error)
+	// CheckFo asks once for the errand's latest response (Fo adds to it, e.g. a call's outcome after dialling).
+	CheckFo(ctx context.Context, conversationID string) (text string, err error)
 }
 
 // Result of one Claude turn.
@@ -1039,6 +1041,9 @@ func (b *Brain) watchErrand(e *errand) {
 		status, text = "failed", "Fo didn't report back ("+err.Error()+")"
 	}
 	b.logf("errand %s settled: %s %q", e.id, status, clip(text, 160))
+	if err == nil && status != "failed" && underway.MatchString(text) {
+		text = b.followCall(ctx, e, text)
+	}
 
 	b.turn <- struct{}{} // after whatever is going on now
 	defer b.endTurn()
@@ -1053,6 +1058,40 @@ func (b *Brain) watchErrand(e *errand) {
 	b.turnWith(ctx, "fo", msg, 0, func() {
 		_ = b.cfg.Device.Command(foCommand{Type: "fo", State: "back", Task: e.task, OK: status != "failed", ID: e.id}) // Fo walks in with it
 	})
+}
+
+// underway: Fo calls an errand complete once it has dialled ("Calling Karan
+// now, I'll report back when the call wraps"); the outcome comes later.
+var underway = regexp.MustCompile(`(?i)\b(?:calling\b.*\bnow|call (?:is )?(?:going out|underway|in progress|ringing)|ringing|` +
+	`i'll (?:report|post|let you know|update you)|once the call (?:ends|wraps|is done)|when the call (?:ends|wraps|is done))`)
+
+var (
+	followEvery = 45 * time.Second
+	followTries = 12 // ~9 minutes
+)
+
+// followCall checks back with Fo until the errand's response grows past what
+// it said when it dialled, and returns the whole response (or what there is).
+func (b *Brain) followCall(ctx context.Context, e *errand, dialled string) string {
+	b.logf("errand %s: Fo is on the call; checking back for how it went", e.id)
+	for i := 0; i < followTries; i++ {
+		select {
+		case <-time.After(followEvery):
+		case <-ctx.Done():
+			return dialled
+		}
+		latest, err := b.cfg.FoWatcher.CheckFo(ctx, e.conv)
+		if err != nil {
+			b.logf("errand %s: check %d: %v", e.id, i+1, err)
+			continue
+		}
+		if news := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(latest), strings.TrimSpace(dialled))); news != "" && latest != dialled {
+			b.logf("errand %s: the call's outcome: %q", e.id, clip(news, 160))
+			return latest
+		}
+	}
+	b.logf("errand %s: no outcome after %d checks", e.id, followTries)
+	return dialled + " (Fo hasn't said yet how the call went.)"
 }
 
 // waitingNote tells Claude, inside the time stamp, which reminders went off

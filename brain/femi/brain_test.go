@@ -1045,6 +1045,47 @@ func (w fakeWatcher) WaitForFo(ctx context.Context, conv string) (string, string
 	return "complete", "Booked for 7 pm at Toit.", nil
 }
 
+func (w fakeWatcher) CheckFo(ctx context.Context, conv string) (string, error) { return "", nil }
+
+// a call errand: Fo reports "complete" when it dials, and the outcome a little later
+type callWatcher struct{ checks *int }
+
+func (w callWatcher) WaitForFo(ctx context.Context, conv string) (string, string, error) {
+	return "complete", "Calling Karan now with your reminder. I'll report back as soon as the call wraps.", nil
+}
+
+func (w callWatcher) CheckFo(ctx context.Context, conv string) (string, error) {
+	*w.checks++
+	if *w.checks < 2 {
+		return "Calling Karan now with your reminder. I'll report back as soon as the call wraps.", nil
+	}
+	return "Calling Karan now with your reminder. I'll report back as soon as the call wraps. Done: Karan picked up and said he'll set an alarm.", nil
+}
+
+func TestCallErrandWaitsForTheOutcome(t *testing.T) {
+	defer func(e time.Duration) { followEvery = e }(followEvery)
+	followEvery = 10 * time.Millisecond
+	checks := 0
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		if n == 1 {
+			onEvent(Event{Kind: "tool_call", Tool: "ask_fo", Text: "Asking Fo: Call Karan about his flight"})
+			onEvent(Event{Kind: "fo_progress", Tool: "ask_fo", Text: "Working", Status: "working", FoConversation: "c9"})
+			return Result{Reply: "Fo's calling him.", SessionID: "s"}, nil
+		}
+		return Result{Reply: "Karan picked up and will set an alarm.", SessionID: "s"}, nil
+	}}
+	b, dev := newBrain(t, th, func(c *Config) { c.FoWatcher = callWatcher{&checks} })
+	b.DeviceFrame(textEvent("call Karan about his flight"))
+	dev.waitFor(t, "report", isSay("Karan picked up and will set an alarm."))
+	calls := th.Calls()
+	if len(calls) != 2 || !strings.Contains(calls[1].Text, "Done: Karan picked up and said he'll set an alarm.") {
+		t.Errorf("the report should carry the call's outcome: %+v", calls)
+	}
+	if checks != 2 {
+		t.Errorf("checked back %d times, want 2", checks)
+	}
+}
+
 // A Fo errand still working when the turn ends goes on in the background;
 // when Fo settles, the brain starts a turn to report it.
 func TestFoErrandInTheBackground(t *testing.T) {

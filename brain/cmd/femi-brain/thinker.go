@@ -86,6 +86,27 @@ func (w foWatcher) WaitForFo(ctx context.Context, conv string) (string, string, 
 	return "", "", err
 }
 
+const checkPrompt = `Call get_fo_reply exactly once with the conversationId you are given, then reply with the single word: done. Never call any other tool.`
+
+func (w foWatcher) CheckFo(ctx context.Context, conv string) (string, error) {
+	opts := w.opts
+	opts.SystemPrompt = checkPrompt
+	opts.MCPConfigJSON = ""
+	opts.ExtraAllowedTools = nil
+	opts.BuiltinTools = nil
+	opts.Timeout = 2 * time.Minute
+	var text string
+	_, err := agent.Run(ctx, opts, "", "conversationId: "+conv, func(e agent.Event) {
+		if e.Kind == agent.KindFoDone || e.Kind == agent.KindFoProgress {
+			text = e.Text
+		}
+	})
+	if text == "" && err == nil {
+		err = errors.New("no reply from Fo")
+	}
+	return text, err
+}
+
 // Spare and finished Claude processes are replaced after this long, so their
 // Fo connection and the date in Claude's context never go stale.
 const (
