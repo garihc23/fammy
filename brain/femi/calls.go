@@ -105,19 +105,11 @@ func (b *Brain) ReplayCall(ctx context.Context, title string, lines []CallLine) 
 		pcm = append(pcm, p...)
 	}
 
-	b.mu.Lock()
-	b.sayN++
-	id := fmt.Sprintf("s%d", b.sayN)
-	b.mu.Unlock()
 	title = "Call: " + clip(strings.TrimSpace(title), 40)
-	play := b.requestCtx() // not the tool call's: the call keeps playing after the tool returns
-	go func() {
-		if err := b.cfg.Device.Say(play, id, title, pcm, link.SayOptions{Aside: true}); err != nil && !stopped(play) {
-			b.logf("replay %s: %v", id, err)
-		}
-	}()
+	play := b.requestCtx()                                               // not the tool call's: the call keeps playing after the tool returns
+	sp := b.enqueueAudio(play, title, pcm, link.SayOptions{Aside: true}) // plays after anything already queued
 	secs := len(pcm) / (SampleRate * 2)
-	b.logf("replay %s: %q, %d lines, %d s", id, title, len(keep), secs)
+	b.logf("replay %s: %q, %d lines, %d s", sp.id, title, len(keep), secs)
 	return fmt.Sprintf("Playing the call now (%d lines, about %d seconds). Reply with one very short line only, "+
 		"or nothing more than \"That's the call.\"", len(keep), secs), nil
 }

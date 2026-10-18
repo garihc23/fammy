@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ type rec struct {
 	Bytes   int
 	Listen  bool
 	Aside   bool
+	Turn    int
 	Command map[string]any
 }
 
@@ -68,7 +70,7 @@ func (d *fakeDevice) State(face, line string) error {
 	return d.add(rec{Kind: "state", Face: face, Line: line})
 }
 func (d *fakeDevice) Say(ctx context.Context, id, text string, pcm []byte, opts link.SayOptions) error {
-	return d.add(rec{Kind: "say", ID: id, Text: text, Bytes: len(pcm), Listen: opts.Listen, Aside: opts.Aside})
+	return d.add(rec{Kind: "say", ID: id, Text: text, Bytes: len(pcm), Listen: opts.Listen, Aside: opts.Aside, Turn: opts.Turn})
 }
 func (d *fakeDevice) Command(v any) error {
 	raw, _ := json.Marshal(v)
@@ -234,6 +236,7 @@ func TestSessionKeptAndIdleReset(t *testing.T) {
 				}
 			}
 			if says >= n {
+				waitIdle(t, b)
 				return
 			}
 			if time.Now().After(deadline) {
@@ -676,6 +679,7 @@ func TestReplyListensUnlessDone(t *testing.T) {
 	if r := dev.waitFor(t, "reply 1", isSay("Reply 1")); !r.Listen {
 		t.Error("a normal reply should keep listening")
 	}
+	waitIdle(t, b)
 	b.DeviceFrame(textEvent("thanks, that's all"))
 	if r := dev.waitFor(t, "reply 2", isSay("Reply 2")); r.Listen {
 		t.Error("after \"that's all\" Famyy should stop listening")
@@ -890,6 +894,7 @@ func TestPhotoAgeInTheTimeStamp(t *testing.T) {
 	now = now.Add(-2 * time.Minute) // the photo was taken at 03:42
 	b.LookAtCamera(context.Background())
 	now = now.Add(2 * time.Minute)
+	waitIdle(t, b)
 	b.DeviceFrame(textEvent("what colours suit me?"))
 	deadline := time.Now().Add(3 * time.Second)
 	for len(th.Calls()) < 2 && time.Now().Before(deadline) {
@@ -948,6 +953,7 @@ func TestConversationSurvivesAStop(t *testing.T) {
 	b, dev := newBrain(t, th, nil)
 	b.DeviceFrame(textEvent("my favourite colour is teal"))
 	dev.waitFor(t, "first reply", isSay("Teal is lovely."))
+	waitIdle(t, b)
 	b.DeviceFrame(textEvent("write me a long story"))
 	<-gate
 	b.DeviceFrame(link.Frame{Type: link.TypeEvent, Payload: []byte(`{"type":"stop"}`)})
@@ -964,6 +970,7 @@ func TestConversationSurvivesAStop(t *testing.T) {
 	if c := th.Calls(); len(c) != 3 || c[2].Session != "sess-1" {
 		t.Fatalf("after a stop the next turn should continue sess-1: %+v", c)
 	}
+	waitIdle(t, b)
 	b.DeviceFrame(textEvent("okay, let's start over"))
 	dev.waitFor(t, "fourth reply", isSay("reply 4"))
 	calls := th.Calls()
@@ -993,12 +1000,25 @@ func TestAsidesAndCaptionCap(t *testing.T) {
 	long := strings.Repeat("The light blue suit is lovely. ", 30) // ~930 characters
 	b, dev := newBrain(t, replyThinker(long), nil)
 	b.DeviceFrame(textEvent("find wedding outfits"))
-	r := dev.waitFor(t, "reply", func(r rec) bool { return r.Kind == "say" && strings.HasPrefix(r.Text, "The light blue") })
-	if n := utf8.RuneCountInString(r.Text); r.Aside || n > captionMax+1 || !strings.HasSuffix(r.Text, "…") {
-		t.Errorf("reply say: aside %v, %d characters %q", r.Aside, utf8.RuneCountInString(r.Text), r.Text[len(r.Text)-20:])
+	dev.waitFor(t, "the last sentence", func(r rec) bool { return r.Kind == "say" && !r.Aside })
+	var says []rec
+	for _, r := range dev.all() {
+		if r.Kind == "say" {
+			says = append(says, r)
+		}
 	}
-	if r.Bytes != 2*len(spoken(Spoken(long))) {
-		t.Errorf("the audio must keep the whole reply: %d bytes", r.Bytes)
+	var texts []string
+	for i, r := range says {
+		if r.Aside != (i < len(says)-1) {
+			t.Errorf("sentence %d: aside %v (only the last one isn't)", i, r.Aside)
+		}
+		texts = append(texts, r.Text)
+	}
+	if len(says) < 2 || strings.Join(texts, " ") != strings.TrimSpace(long) {
+		t.Errorf("the reply should come sentence by sentence, all of it: %d says", len(says))
+	}
+	if c := caption(strings.Repeat("word ", 200)); utf8.RuneCountInString(c) > captionMax+1 || !strings.HasSuffix(c, "…") {
+		t.Errorf("a single long sentence is still capped: %d characters", utf8.RuneCountInString(c))
 	}
 
 	b.speakAside(context.Background(), MsgNoted)
@@ -1107,5 +1127,69 @@ func TestIntroduceYourself(t *testing.T) {
 		if introRequest.MatchString(s) != want {
 			t.Errorf("introRequest(%q) != %v", s, want)
 		}
+	}
+}
+
+// Progressive speech: a line Claude writes between tool calls is said right
+// away (an aside of this turn), and the final reply says only what's new.
+func TestPiecesAreSpokenAsTheyCome(t *testing.T) {
+	said := make(chan struct{})
+	var dev *fakeDevice
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		onEvent(Event{Kind: "text", Text: "Your reminder's set."})
+		// the piece reaches the device while the turn is still going
+		dev.waitFor(t, "the piece", isSay("Your reminder's set."))
+		close(said)
+		onEvent(Event{Kind: "tool_call", Tool: "look_at_camera", Text: "Using femi look_at_camera"})
+		return Result{Reply: "Your reminder's set. You look great in blue! Don't worry, I don't keep the photo.", SessionID: "s"}, nil
+	}}
+	b, d := newBrain(t, th, nil)
+	dev = d
+	b.DeviceFrame(textEvent("set a reminder and take my photo"))
+	<-said
+	dev.waitFor(t, "the end", func(r rec) bool { return r.Kind == "say" && !r.Aside })
+	var says []rec
+	for _, r := range dev.all() {
+		if r.Kind == "say" {
+			says = append(says, r)
+		}
+	}
+	if len(says) < 2 || says[0].Text != "Your reminder's set." || !says[0].Aside || says[0].Turn != 1 {
+		t.Fatalf("first say = %+v", says)
+	}
+	for _, r := range says[1:] {
+		if strings.Contains(r.Text, "reminder's set") {
+			t.Errorf("the piece was said twice: %q", r.Text)
+		}
+		if r.Turn != 1 {
+			t.Errorf("say %q isn't tagged with its turn", r.Text)
+		}
+	}
+	if last := says[len(says)-1]; !last.Listen || last.Aside {
+		t.Errorf("the last sentence should end the turn and listen: %+v", last)
+	}
+}
+
+func TestSentences(t *testing.T) {
+	got := sentences("Hi! It's sunny and 28 degrees in Bengaluru today. The suit is $189.99 at Melrose. Want me to order it?")
+	want := []string{"Hi! It's sunny and 28 degrees in Bengaluru today.", "The suit is $189.99 at Melrose. Want me to order it?"}
+	if !slices.Equal(got, want) {
+		t.Errorf("sentences = %q", got)
+	}
+	if got := sentences("One line"); !slices.Equal(got, []string{"One line"}) {
+		t.Errorf("sentences(one) = %q", got)
+	}
+}
+
+// waitIdle waits until the brain has finished the turn in progress (its last
+// SAY can reach the device a moment before the turn lets go of its slot).
+func waitIdle(t *testing.T, b *Brain) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for b.Status().Turn {
+		if time.Now().After(deadline) {
+			t.Fatal("the brain stayed busy")
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 }

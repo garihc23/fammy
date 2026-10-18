@@ -247,6 +247,7 @@ func (s *Server) Command(v any) error { return s.sendJSON(TypeCommand, v) }
 type SayOptions struct {
 	Listen bool // listen for a reply afterwards, without the wake phrase
 	Aside  bool // not the answer to the request in progress (a reminder, "noted", "one moment"): don't end what is going on
+	Turn   int  // the turn it belongs to (0: none); after a stop the device drops the rest of that turn's SAYs
 }
 
 func (s *Server) Say(ctx context.Context, id, text string, pcm []byte, opts SayOptions) error {
@@ -260,8 +261,9 @@ func (s *Server) Say(ctx context.Context, id, text string, pcm []byte, opts SayO
 		Bytes  int    `json:"bytes"`
 		Listen bool   `json:"listen"`
 		Aside  bool   `json:"aside,omitempty"`
+		Turn   int    `json:"turn,omitempty"`
 		Text   string `json:"text"`
-	}{id, len(pcm), opts.Listen, opts.Aside, text})
+	}{id, len(pcm), opts.Listen, opts.Aside, opts.Turn, text})
 	if err != nil {
 		return err
 	}

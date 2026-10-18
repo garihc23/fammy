@@ -150,6 +150,7 @@ type Brain struct {
 	lastPhoto  time.Time          // when look_at_camera last took a photo
 	errandN    int
 	errands    map[string]*errand // Fo errands running in the background, by id
+	speechQ    chan *speech       // everything Famyy says, in order (speech.go)
 }
 
 // New returns a brain; call it before the link starts serving.
@@ -182,7 +183,9 @@ func New(cfg Config) *Brain {
 		approvals: map[string]chan string{},
 		phrases:   map[string][]byte{},
 		errands:   map[string]*errand{},
+		speechQ:   make(chan *speech, 64),
 	}
+	go b.speaker()
 	go func() {
 		for f := range b.out {
 			f()
@@ -546,6 +549,14 @@ func (b *Brain) turnWith(ctx context.Context, source, text string, stt time.Dura
 	var events []string
 	lastLine := ""
 	lastAsk := ""
+	// what Claude says between tool calls ("Your reminder's set.") is spoken right away
+	var pieceMu sync.Mutex
+	var pieces []string
+	saidSoFar := func() []string {
+		pieceMu.Lock()
+		defer pieceMu.Unlock()
+		return append([]string(nil), pieces...)
+	}
 	open := map[string]*errand{} // Fo errands still working, by Fo conversation
 	onEvent := func(e Event) {
 		switch {
@@ -557,6 +568,13 @@ func (b *Brain) turnWith(ctx context.Context, source, text string, stt time.Dura
 			}
 		case e.Kind == "fo_done" && e.FoConversation != "":
 			delete(open, e.FoConversation)
+		case e.Kind == "text":
+			if piece := Spoken(e.Text); !tooShort(piece) && !quietReply(piece) {
+				pieceMu.Lock()
+				pieces = append(pieces, piece)
+				pieceMu.Unlock()
+				b.enqueue(ctx, piece, false, link.SayOptions{Aside: true, Turn: n})
+			}
 		}
 		b.logf("turn %d: %s %s %q", n, e.Kind, e.Tool, clip(e.Text, 160))
 		events = append(events, e.Kind+":"+e.Tool)
@@ -619,14 +637,16 @@ func (b *Brain) turnWith(ctx context.Context, source, text string, stt time.Dura
 	reply := Spoken(res.Reply)
 	if quietReply(reply) { // the device already said it ("Okay, I won't."): end the turn without a word
 		b.logf("turn %d done: quiet | turn %dms, $%.4f | events [%s]", n, took.Milliseconds(), res.CostUSD, strings.Join(events, ","))
-		_ = b.cfg.Device.Say(ctx, b.nextSayID(), "", nil, link.SayOptions{}) // an empty reply still ends the device's busy state
+		<-b.enqueueAudio(ctx, "", nil, link.SayOptions{Turn: n}).done // an empty reply still ends the device's busy state
 		return
 	}
-	if reply == "" {
+	said := saidSoFar()
+	if reply == "" && len(said) == 0 {
 		reply = "Done."
 	}
 	listen := keepListening(text, reply)
-	tts := b.speak(ctx, reply, false, link.SayOptions{Listen: listen})
+	reply = withoutSpoken(reply, said) // only what wasn't said mid-turn
+	tts := b.speakReply(ctx, reply, link.SayOptions{Listen: listen, Turn: n})
 	if stopped(ctx) {
 		b.logf("turn %d stopped while speaking", n)
 	}
@@ -785,32 +805,12 @@ func (b *Brain) speakCache(text string) {
 	b.mu.Unlock()
 }
 
+// speak says text through the speech queue and returns once it has been
+// handed to the device, with its synthesis time.
 func (b *Brain) speak(ctx context.Context, text string, cache bool, opts link.SayOptions) time.Duration {
-	b.mu.Lock()
-	b.sayN++
-	id := fmt.Sprintf("s%d", b.sayN)
-	pcm, cached := b.phrases[text]
-	b.mu.Unlock()
-
-	var took time.Duration
-	if b.cfg.Voice != nil && !cached {
-		start := time.Now()
-		var err error
-		pcm, err = b.cfg.Voice.Speak(ctx, spoken(text), SampleRate)
-		took = time.Since(start)
-		if err != nil {
-			b.logf("tts failed after %dms, sending caption only: %v", took.Milliseconds(), err)
-			pcm = nil
-		} else if cache {
-			b.mu.Lock()
-			b.phrases[text] = pcm
-			b.mu.Unlock()
-		}
-	}
-	if err := b.cfg.Device.Say(ctx, id, caption(text), pcm, opts); err != nil && !stopped(ctx) {
-		b.logf("say %s %q: %v", id, text, err)
-	}
-	return took
+	s := b.enqueue(ctx, text, cache, opts)
+	<-s.done
+	return s.tts
 }
 
 var (
@@ -898,13 +898,12 @@ var introRequest = regexp.MustCompile(`(?i)\bintroduce\s+(?:your\s*self|famyy|fa
 // introduce says Intro: every sentence but the last is an aside, and Famyy
 // listens after the last one. A tap stops it.
 func (b *Brain) introduce(ctx context.Context) {
+	var last *speech
 	for i, line := range Intro {
-		last := i == len(Intro)-1
-		b.speak(ctx, line, true, link.SayOptions{Aside: !last, Listen: last})
-		if stopped(ctx) {
-			return
-		}
+		end := i == len(Intro)-1
+		last = b.enqueue(ctx, line, true, link.SayOptions{Aside: !end, Listen: end})
 	}
+	<-last.done
 }
 
 // quietReply is Claude's way to say nothing at all: "[quiet]".
