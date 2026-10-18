@@ -258,6 +258,8 @@ func TestSessionKeptAndIdleReset(t *testing.T) {
 }
 
 func TestBusySaysOneMoment(t *testing.T) {
+	defer func(w time.Duration) { turnWait = w }(turnWait)
+	turnWait = 100 * time.Millisecond
 	release := make(chan struct{})
 	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
 		<-release
@@ -1258,5 +1260,50 @@ func TestEchoOfFamyyIsDropped(t *testing.T) {
 	}
 	if got := b.dropEcho("Tell me a joke about cats."); got != "Tell me a joke about cats." {
 		t.Errorf("a fresh request was changed: %q", got)
+	}
+}
+
+// A request that arrives during a short turn (an errand's report) waits for it
+// instead of being told "one moment".
+func TestRequestWaitsForAShortTurn(t *testing.T) {
+	release := make(chan struct{})
+	th := &fakeThinker{fn: func(ctx context.Context, n int, text string, onEvent func(Event)) (Result, error) {
+		if n == 1 {
+			<-release
+		}
+		return Result{Reply: fmt.Sprintf("answer %d", n)}, nil
+	}}
+	b, dev := newBrain(t, th, nil)
+	b.DeviceFrame(textEvent("first"))
+	dev.waitFor(t, "thinking", func(r rec) bool { return r.Kind == "state" && r.Face == "thinking" })
+	b.DeviceFrame(textEvent("second"))
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	dev.waitFor(t, "second answer", isSay("answer 2"))
+	for _, r := range dev.all() {
+		if r.Kind == "say" && r.Text == MsgBusy {
+			t.Error("the second request was turned away")
+		}
+	}
+}
+
+func TestReportWaitsForTheRecording(t *testing.T) {
+	b, _ := newBrain(t, replyThinker("ok"), nil)
+	b.DeviceFrame(link.Frame{Type: link.TypeAudioStart, Payload: []byte(`{"rate":16000,"trigger":"wake"}`)})
+	got := make(chan struct{})
+	go func() { b.reportTurn(); close(got) }()
+	select {
+	case <-got:
+		t.Fatal("a report took the turn while someone was talking")
+	case <-time.After(300 * time.Millisecond):
+	}
+	b.mu.Lock()
+	b.recording = false // AUDIO_END, as if the request had already gone through
+	b.mu.Unlock()
+	select {
+	case <-got:
+		b.endTurn()
+	case <-time.After(2 * time.Second):
+		t.Fatal("the report never got its turn")
 	}
 }

@@ -388,6 +388,39 @@ func (b *Brain) tryTurn() bool {
 
 func (b *Brain) endTurn() { <-b.turn }
 
+// turnWait is how long a request waits for the turn in progress (an errand's
+// report, say) before Famyy answers "one moment" instead.
+var turnWait = 15 * time.Second
+
+// awaitTurn takes the turn slot, waiting up to turnWait.
+func (b *Brain) awaitTurn() bool {
+	if b.tryTurn() {
+		return true
+	}
+	t := time.NewTimer(turnWait)
+	defer t.Stop()
+	select {
+	case b.turn <- struct{}{}:
+		return true
+	case <-t.C:
+		return false
+	}
+}
+
+// reportTurn takes the turn slot for a report Famyy starts itself, never
+// while the person is speaking: their request goes first.
+func (b *Brain) reportTurn() {
+	for {
+		b.mu.Lock()
+		rec := b.recording
+		b.mu.Unlock()
+		if !rec && b.tryTurn() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // activity starts a request the device can stop with a tap (stopRequest).
 func (b *Brain) activity() (context.Context, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -430,7 +463,7 @@ func (b *Brain) stopRequest() {
 func stopped(ctx context.Context) bool { return errors.Is(ctx.Err(), context.Canceled) }
 
 func (b *Brain) utterance(pcm []byte, trigger string) {
-	if !b.tryTurn() {
+	if !b.awaitTurn() {
 		b.logf("busy: dropping utterance")
 		b.speakAside(context.Background(), MsgBusy)
 		return
@@ -491,7 +524,7 @@ func (b *Brain) textRequest(text string) {
 	if text == "" {
 		return
 	}
-	if !b.tryTurn() {
+	if !b.awaitTurn() {
 		b.logf("busy: dropping text %q", text)
 		b.speakAside(context.Background(), MsgBusy)
 		return
@@ -1124,7 +1157,7 @@ func (b *Brain) watchErrand(e *errand) {
 		text = b.followCall(ctx, e, text)
 	}
 
-	b.turn <- struct{}{} // after whatever is going on now
+	b.reportTurn() // after whatever is going on now, and not while someone is talking
 	defer b.endTurn()
 	b.mu.Lock()
 	delete(b.errands, e.id)
