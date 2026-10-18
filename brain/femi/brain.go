@@ -188,6 +188,13 @@ func New(cfg Config) *Brain {
 			f()
 		}
 	}()
+	if cfg.Voice != nil {
+		go func() { // the introduction plays the moment it's asked for
+			for _, line := range Intro {
+				b.speakCache(line)
+			}
+		}()
+	}
 	if cfg.Reminders != nil {
 		cfg.Reminders.OnFire = b.reminderFired
 		cfg.Reminders.OnEscalate = b.reminderUnacked
@@ -522,6 +529,14 @@ func (b *Brain) turnWith(ctx context.Context, source, text string, stt time.Dura
 	b.mu.Unlock()
 
 	b.logf("turn %d [%s] %q (stt %dms, session %q)", n, source, text, stt.Milliseconds(), session)
+	if source != "fo" && introRequest.MatchString(text) {
+		b.logf("turn %d: introducing myself (scripted)", n)
+		b.introduce(ctx)
+		b.mu.Lock()
+		b.lastTurn = b.cfg.Now()
+		b.mu.Unlock()
+		return
+	}
 	// the full transcript first, then the STATE: same connection, so the device sees them in this order
 	_ = b.cfg.Device.Command(heardCommand{Type: "heard", Text: clip(text, heardMax)})
 	_ = b.cfg.Device.State("thinking", clip(text, lineMax)) // the device prints its own "> " prompt
@@ -752,6 +767,24 @@ func (b *Brain) speakAside(ctx context.Context, text string) {
 
 // speak sends text as a SAY (with audio when TTS is configured) and returns
 // the TTS time.
+// speakCache synthesises a phrase ahead of time into the phrase cache.
+func (b *Brain) speakCache(text string) {
+	b.mu.Lock()
+	_, ok := b.phrases[text]
+	b.mu.Unlock()
+	if ok {
+		return
+	}
+	pcm, err := b.cfg.Voice.Speak(context.Background(), spoken(text), SampleRate)
+	if err != nil {
+		b.logf("tts: couldn't prepare %q: %v", clip(text, 40), err)
+		return
+	}
+	b.mu.Lock()
+	b.phrases[text] = pcm
+	b.mu.Unlock()
+}
+
 func (b *Brain) speak(ctx context.Context, text string, cache bool, opts link.SayOptions) time.Duration {
 	b.mu.Lock()
 	b.sayN++
@@ -846,6 +879,32 @@ func caption(s string) string {
 		return strings.TrimRight(string(r)[:i], " ,;:") + "…"
 	}
 	return string(r) + "…"
+}
+
+// Intro is what Famyy says, word for word, when asked to introduce itself
+// (the demo for the jury): one sentence per SAY so the bubbles keep up, and
+// synthesised at start so it plays at once.
+var Intro = []string{
+	"Hi jury! I'm Famyy, your AI family member, powered by Fo and Claude.",
+	"I'm here for everyone in the house.",
+	"For the little ones, I tell poems, play games and help with homework.",
+	"For busy parents, I take care of everyday tasks, like booking clothes and ordering food.",
+	"And for grandparents, I remind them about their medicines, tell jokes, and keep them company when the house feels quiet.",
+	"I was made by Karan and Chirag. Nice to meet you!",
+}
+
+var introRequest = regexp.MustCompile(`(?i)\bintroduce\s+(?:your\s*self|famyy|fammy|famy|femi)\b`)
+
+// introduce says Intro: every sentence but the last is an aside, and Famyy
+// listens after the last one. A tap stops it.
+func (b *Brain) introduce(ctx context.Context) {
+	for i, line := range Intro {
+		last := i == len(Intro)-1
+		b.speak(ctx, line, true, link.SayOptions{Aside: !last, Listen: last})
+		if stopped(ctx) {
+			return
+		}
+	}
 }
 
 // quietReply is Claude's way to say nothing at all: "[quiet]".

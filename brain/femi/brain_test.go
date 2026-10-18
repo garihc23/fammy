@@ -1079,3 +1079,33 @@ func TestFoErrandInTheBackground(t *testing.T) {
 		t.Error("the errand is still counted after its report")
 	}
 }
+
+func TestIntroduceYourself(t *testing.T) {
+	th := replyThinker("should not be asked")
+	b, dev := newBrain(t, th, nil)
+	b.DeviceFrame(textEvent("Hey Fammy, introduce yourself."))
+	dev.waitFor(t, "last line", isSay(Intro[len(Intro)-1]))
+	var says []rec
+	for _, r := range dev.all() {
+		if r.Kind == "say" {
+			says = append(says, r)
+		}
+	}
+	if len(says) != len(Intro) {
+		t.Fatalf("said %d lines, want %d: %+v", len(says), len(Intro), says)
+	}
+	for i, r := range says {
+		last := i == len(Intro)-1
+		if r.Text != Intro[i] || r.Aside == last || r.Listen != last || r.Bytes == 0 {
+			t.Errorf("line %d = %+v", i, r)
+		}
+	}
+	if len(th.Calls()) != 0 {
+		t.Error("the introduction is scripted: Claude shouldn't be asked")
+	}
+	for s, want := range map[string]bool{"introduce yourself": true, "please introduce your self to the judges": true, "introduce me to Riya": false} {
+		if introRequest.MatchString(s) != want {
+			t.Errorf("introRequest(%q) != %v", s, want)
+		}
+	}
+}
