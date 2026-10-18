@@ -119,11 +119,17 @@ void voiceFeed(const int16_t *s, size_t n) {
 
 static Ring spk;
 static I2SClass amp;
-static volatile bool playing = false, sayEnded = false;
+static volatile bool playing = false;
 static volatile bool stopReq = false, stopQuietly = false, discarding = false;   // a tap cut the reply short
-static volatile int sayListen = -1;                          // listen afterwards: 1 yes, 0 no, -1 only after a question
 static volatile int playLevel = 0;
-static char sayId[16];
+// replies waiting to be heard, each with where its audio starts in the speaker ring
+struct QueuedSay {
+  Say say;
+  size_t at;
+};
+static QueueHandle_t says;
+static volatile uint32_t saysStarted = 0, saysEnded = 0;   // SAY_STARTs and SAY_ENDs from the brain
+static Say current;                                         // the one being heard (player task only)
 
 // sound cues wait in a queue and play between replies, never over one
 struct Cue {
@@ -156,16 +162,16 @@ void playerClipOf(int first, int count) {   // the next of a group of clips, so 
   playerClip(first + turn[first]++ % count);
 }
 
-void playerSayStart(const char *id, uint32_t bytes, int listen) {
-  strlcpy(sayId, id, sizeof sayId);
-  sayListen = listen;
-  sayEnded = false;
+void playerSayStart(const Say &s) {
+  QueuedSay q = {s, spk.written()};   // its audio starts where the ring has been written up to now
   discarding = false;
   playing = true;
+  saysStarted++;
+  if (xQueueSend(says, &q, pdMS_TO_TICKS(50)) != pdTRUE) Serial.println("say queue full: caption dropped");
 }
 
 void playerSayEnd() {
-  if (!discarding) sayEnded = true;
+  if (!discarding) saysEnded++;
 }
 
 void playerStop(bool quietly) {
@@ -360,7 +366,9 @@ static void playerTask(void *) {
     if (stopReq) {   // a tap cut the reply short: forget it and anything queued, no follow-up listening
       stopReq = false;
       spk.clear();
-      playing = sayEnded = false;
+      xQueueReset(says);
+      playing = false;
+      saysStarted = saysEnded = 0;
       playLevel = 0;
       femiLock();
       femiView().speaking = false;
@@ -379,6 +387,19 @@ static void playerTask(void *) {
       }
       continue;
     }
+    QueuedSay next;
+    if (xQueuePeek(says, &next, 0) == pdTRUE && spk.consumed() >= next.at) {   // the next reply's audio is up: its words now
+      xQueueReceive(says, &next, 0);
+      current = next.say;
+      femiLock();
+      FemiView &v = femiView();
+      strlcpy(v.caption, current.text, sizeof v.caption);
+      v.speaking = current.text[0] || current.bytes;   // an empty SAY means "say nothing": it only ends the turn
+      v.aside = current.aside;
+      v.speakSince = millis();
+      v.speakMs = current.bytes ? current.bytes / 32 : max(2500u, (unsigned)strlen(current.text) * 70);   // 32 bytes per ms
+      femiUnlock();
+    }
     size_t avail = spk.available() & ~(size_t)1;   // whole samples only
     size_t n = spk.read(buf, min(avail, sizeof buf));
     if (n > 0) {
@@ -395,7 +416,7 @@ static void playerTask(void *) {
       continue;
     }
     playLevel = 0;
-    if (playing && sayEnded) {   // the whole reply has played
+    if (playing && saysEnded == saysStarted && uxQueueMessagesWaiting(says) == 0) {   // every reply has played
       playing = false;
       bool followUp;
       femiLock();
@@ -403,12 +424,12 @@ static void playerTask(void *) {
       v.speaking = false;
       size_t len = strlen(v.caption);
       // keep the conversation going without the wake phrase when the brain says so (an older brain: after a question)
-      followUp = !v.aside && (sayListen >= 0 ? sayListen == 1 : len > 0 && v.caption[len - 1] == '?');
+      followUp = !v.aside && (current.listen >= 0 ? current.listen == 1 : len > 0 && v.caption[len - 1] == '?');
       v.busy = v.aside && v.busyBeforeAside;   // after an aside, whatever was going on carries on
       v.aside = false;
       femiUnlock();
       char j[64];
-      snprintf(j, sizeof j, "{\"type\":\"played\",\"id\":\"%s\"}", sayId);
+      snprintf(j, sizeof j, "{\"type\":\"played\",\"id\":\"%s\"}", current.id);
       netSend(F_EVENT, j);
       if (followUp) voiceStart("followup");
     }
@@ -424,6 +445,7 @@ static void playerTask(void *) {
 
 void playerBegin() {
   cues = xQueueCreate(8, sizeof(Cue));
+  says = xQueueCreate(8, sizeof(QueuedSay));
   for (int i = 0; i <= 1024; i++) sineTable[i] = sinf(2 * PI * i / 1024);
   mic.begin(64 * 1024);        // 2 s of recording backlog
   spk.begin(512 * 1024);       // 16 s of reply audio

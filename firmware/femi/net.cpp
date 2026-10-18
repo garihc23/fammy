@@ -218,24 +218,21 @@ static void onControl(uint8_t type, const char *j) {
       break;
     }
     case F_SAY_START: {
-      char id[16] = "";
-      jsonStr(j, "id", id, sizeof id);
-      uint32_t bytes = jsonInt(j, "bytes", 0);
-      femiLock();
-      FemiView &v = femiView();
-      jsonStr(j, "text", v.caption, sizeof v.caption);
-      v.speaking = v.caption[0] || bytes;   // an empty SAY means "say nothing": it only ends the turn
+      Say s = {};
+      jsonStr(j, "id", s.id, sizeof s.id);
+      s.bytes = jsonInt(j, "bytes", 0);
+      jsonStr(j, "text", s.text, sizeof s.text);
+      s.listen = jsonBool(j, "listen", false) ? 1 : strstr(j, "\"listen\"") ? 0 : -1;   // -1: an older brain didn't say
       // an aside is spoken in the middle of something else and mustn't end it. The brain marks it; until every
       // brain does, the ones it says today are known by their words
-      v.aside = jsonBool(j, "aside", false) || !strncmp(v.caption, "Reminder:", 9) || strstr(v.caption, "it's time for your") ||
-                !strcmp(v.caption, "Thank you, noted.") || !strncmp(v.caption, "One moment, I'm still on", 24);
-      v.busyBeforeAside = v.busy;
+      s.aside = jsonBool(j, "aside", false) || !strncmp(s.text, "Reminder:", 9) || strstr(s.text, "it's time for your") ||
+                !strcmp(s.text, "Thank you, noted.") || !strncmp(s.text, "One moment, I'm still on", 24);
+      femiLock();
+      FemiView &v = femiView();
+      if (!playerBusy()) v.busyBeforeAside = v.busy;   // at the first of a run of replies: what to go back to after asides
       v.busy = true;
-      v.speakSince = now;
-      v.speakMs = bytes ? bytes / 32 : max(2500u, (unsigned)strlen(v.caption) * 70);   // 32 bytes per ms at 16 kHz
       femiUnlock();
-      int listen = jsonBool(j, "listen", false) ? 1 : strstr(j, "\"listen\"") ? 0 : -1;   // -1: an older brain didn't say
-      playerSayStart(id, bytes, listen);
+      playerSayStart(s);   // its words show when its audio starts playing
       break;
     }
     case F_SAY_END:

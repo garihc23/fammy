@@ -13,6 +13,8 @@ public:
   }
   size_t available() const { return head.load(std::memory_order_acquire) - tail.load(std::memory_order_acquire); }
   size_t space() const { return cap - available(); }
+  size_t written() const { return head.load(std::memory_order_acquire); }    // bytes ever written
+  size_t consumed() const { return tail.load(std::memory_order_acquire); }   // bytes ever read
   // reader side only
   void clear() { tail.store(head.load(std::memory_order_acquire), std::memory_order_release); }
 
