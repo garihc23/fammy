@@ -10,6 +10,7 @@
 
 static Ring mic;
 static volatile bool recording = false;
+static volatile uint32_t recordingSince = 0;
 static volatile int level = 0;
 
 // voice activity detection on 30 ms frames: the request ends after a short silence
@@ -54,6 +55,7 @@ bool voiceStart(const char *trigger) {
   femiView().line[0] = 0;
   femiUnlock();
   listening = true;
+  recordingSince = millis();
   recording = true;
   playerChime(true);
   return true;
@@ -383,6 +385,14 @@ static void playerTask(void *) {
       femiView().busy = false;
       femiUnlock();
       if (!stopQuietly) cue(CLIP_BASE + CLIP_STOPPED);   // "Okay, I'll stop."
+    }
+    // while the mic records, the speaker holds everything (only the "listening" chime at the start plays):
+    // Famyy must never hear itself. Replies wait in the ring and sounds go stale; both carry on afterwards
+    if (recording && millis() - recordingSince > 400) {
+      playLevel = 0;
+      memset(buf, 0, 512);
+      amp.write((uint8_t *)buf, 512);
+      continue;
     }
     Cue q;
     if (!playing && spk.available() == 0 && xQueueReceive(cues, &q, 0) == pdTRUE) {
